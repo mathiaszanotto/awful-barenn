@@ -1,0 +1,31 @@
+# Verificação de reprodutibilidade das tags (scripts executados em 2026-11-18)
+# Para cada tag: git worktree limpo a partir do clone do GitHub, `make` no head-node
+# do Franky e medição com scripts/bench.py no nó de GPU (CPU: 10 execuções; GPU: 3).
+no: compute20 | Model name: Intel(R) Core(TM) i9-14900 | NVIDIA RTX A1000
+== v0.1-baseline (CPU)
+treino : media 0.4836 s | desvio 0.0455 s | min 0.4304 s | mediana 0.5166 s
+corretude: IDENTICA — saída idêntica à referência (exceto a linha de tempo)
+== v0.2-sem-alocacoes (CPU)
+treino : media 0.4514 s | desvio 0.0434 s | min 0.4087 s | mediana 0.4513 s
+corretude: IDENTICA — saída idêntica à referência (exceto a linha de tempo)
+== v0.3-layout-contiguo (CPU)
+treino : media 0.3686 s | desvio 0.0351 s | min 0.3315 s | mediana 0.3657 s
+corretude: IDENTICA — saída idêntica à referência (exceto a linha de tempo)
+== v0.4-simd (CPU)
+treino : media 0.1117 s | desvio 0.0013 s | min 0.1103 s | mediana 0.1117 s
+corretude: IDENTICA — saída idêntica à referência (exceto a linha de tempo)
+== v0.5-openmp (CPU)
+treino : media 0.1099 s | desvio 0.0012 s | min 0.1089 s | mediana 0.1095 s
+corretude: IDENTICA — saída idêntica à referência (exceto a linha de tempo)
+== v1.0-cuda-inicial (GPU)
+treino : media 3.5661 s | desvio 0.0106 s | min 3.5548 s | mediana 3.5676 s
+corretude: IDENTICA — saída idêntica à referência (exceto a linha de tempo)
+== v1.1-cuda-persistente (GPU)
+treino : media 0.5097 s | desvio 0.0161 s | min 0.5000 s | mediana 0.5007 s
+corretude: IDENTICA — saída idêntica à referência (exceto a linha de tempo)
+== v1.2-cuda-shared (GPU)
+treino : media 0.4134 s | desvio 0.0001 s | min 0.4133 s | mediana 0.4134 s
+corretude: IDENTICA — saída idêntica à referência (exceto a linha de tempo)
+== v1.3-cuda-warp (GPU)
+treino : media 0.2879 s | desvio 0.0179 s | min 0.2775 s | mediana 0.2777 s
+corretude: IDENTICA — saída idêntica à referência (exceto a linha de tempo)
