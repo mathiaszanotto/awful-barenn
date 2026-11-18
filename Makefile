@@ -1,6 +1,10 @@
 # Build do Barenn (CPU). Testado em Ubuntu 24.04 (WSL2) com g++ 13.3.
 CXX      ?= g++
-CXXFLAGS ?= -O2 -g -std=c++17
+# x86-64-v3 = AVX2 + FMA + BMI2 (Haswell/Zen 1 em diante): portátil entre máquinas,
+# ao contrário de -march=native.
+# -ffp-contract=off: sem fusão a*b+c em FMA, para manter o arredondamento do legado
+# (o gcc usa -ffp-contract=fast por padrão em C++).
+CXXFLAGS ?= -O3 -g -std=c++17 -march=x86-64-v3 -ffp-contract=off
 PERF     ?= $(firstword $(wildcard /usr/lib/linux-tools-*/perf) perf)
 RUNS     ?= 10
 
