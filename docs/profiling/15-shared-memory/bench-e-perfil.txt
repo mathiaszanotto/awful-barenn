@@ -1,0 +1,29 @@
+# Franky compute20: i9-14900 + NVIDIA RTX A1000 (18 SMs, cc 8.6), CUDA 12.8
+# ptxas k_treino<512>: 95 registradores, 0 spill, 12 288 B de smem, 1 barreira
+
+== Varredura de threads (versão final do bloco, scripts/bench.py --runs 5)
+| T   | treino            | us/amostra | corretude |
+| 128 | 0,4472 ± 0,0004 s | 2,296 | IDENTICA |
+| 256 | 0,4489 ± 0,0009 s | 2,304 | IDENTICA |
+| 512 | 0,4125 ± 0,0001 s | 2,118 | IDENTICA |
+
+== Contribuição de cada commit (T = 512, treino)
+| v1.1 (pesos em memória global)        | 0,4995 s |
+| + pesos/vieses em memória compartilhada | 0,5057 s |
+| + prefetch da imagem (buffer duplo)    | 0,4125 s |
+
+== scripts/franky_bench.sh (10 execuções)
+CPU v0.5 : treino media 0.1107 s | desvio 0.0013 s | IDENTICA
+GPU v1.2 : treino media 0.4130 s | desvio 0.0004 s | IDENTICA
+[gpu] contexto 1.6409 s | H2D 0.1454 ms | kernels 412.6464 ms | D2H 0.1581 ms | lancamentos 1 | threads 512 | 2.116 us/amostra
+
+== Perfil por fase (-DPERFIL_FASES, clock64 da thread 0), T = 512
+                         v1.1+shared (sem prefetch)   v1.2 (com prefetch)
+total                    3940 ciclos/amostra          3594 ciclos/amostra
+forward 1 (64->32)        935 (23,7 %)                 663 (18,5 %)
+forward 2 (32->16)        338 ( 8,6 %)                 347 ( 9,7 %)
+forward 3 (16->10)        276 ( 7,0 %)                 277 ( 7,7 %)
+perda + delta 3           272 ( 6,9 %)                 228 ( 6,3 %)
+grad_in 3 + delta 2       239 ( 6,1 %)                 244 ( 6,8 %)
+atualiza W3 + grad_in 2   645 (16,4 %)                 650 (18,1 %)
+atualiza W2 + W1         1237 (31,4 %)                1184 (33,0 %)
