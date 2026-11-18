@@ -25,8 +25,9 @@ class DenseLayer {
     int in_features;
     int out_features;
     bool final;
-    // weights[i][j] liga a entrada j ao neurônio de saída i.
-    vector<vector<float>> weights;
+    // Matriz de pesos contígua em ordem de linha (row-major):
+    // weights[i * in_features + j] liga a entrada j ao neurônio de saída i.
+    vector<float> weights;
     vector<float> bias;
     // Dados do último forward usados para calcular os gradientes.
     // last_input aponta para a entrada do forward (a imagem da amostra ou o
@@ -41,16 +42,15 @@ class DenseLayer {
 public:
     DenseLayer(int input_size, int output_size, bool is_final = false)
         : in_features(input_size), out_features(output_size), final(is_final),
-          weights(output_size, vector<float>(input_size)), bias(output_size, 0),
+          weights(static_cast<size_t>(output_size) * input_size), bias(output_size, 0),
           last_z(output_size), out(output_size), delta(output_size),
           grad_in(input_size) {
         // A semente fixa torna a inicialização de cada camada reproduzível.
+        // A ordem de preenchimento (linha a linha) é a mesma do legado.
         mt19937 gen(1337);
         uniform_real_distribution<float> distribution(-0.05f, 0.05f);
-        for (auto& row : weights) {
-            for (float& weight : row) {
-                weight = distribution(gen);
-            }
+        for (float& weight : weights) {
+            weight = distribution(gen);
         }
     }
 
@@ -58,9 +58,10 @@ public:
         last_input = input.data();
         // Cada neurônio soma o viés aos produtos entre entradas e pesos.
         for (int i = 0; i < out_features; ++i) {
+            const float* w = &weights[static_cast<size_t>(i) * in_features];
             float sum = bias[i];
             for (int j = 0; j < in_features; ++j) {
-                sum += input[j] * weights[i][j];
+                sum += input[j] * w[j];
             }
             last_z[i] = sum;
             // As camadas ocultas usam ReLU. A última devolve escores lineares.
@@ -82,7 +83,7 @@ public:
         for (int i = 0; i < in_features; ++i) {
             float sum = 0;
             for (int j = 0; j < out_features; ++j) {
-                sum += delta[j] * weights[j][i];
+                sum += delta[j] * weights[static_cast<size_t>(j) * in_features + i];
             }
             grad_in[i] = sum;
         }
@@ -90,8 +91,9 @@ public:
         // SGD por amostra. O gradiente do peso é delta vezes a entrada.
         // O gradiente do viés é o próprio delta.
         for (int i = 0; i < out_features; ++i) {
+            float* w = &weights[static_cast<size_t>(i) * in_features];
             for (int j = 0; j < in_features; ++j) {
-                weights[i][j] -= learning_rate * (delta[i] * last_input[j]);
+                w[j] -= learning_rate * (delta[i] * last_input[j]);
             }
             bias[i] -= learning_rate * delta[i];
         }
