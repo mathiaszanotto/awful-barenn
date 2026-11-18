@@ -6,7 +6,7 @@ CXX      ?= g++
 # -ffp-contract=off: sem fusão a*b+c em FMA, para manter o arredondamento do legado
 # (o gcc usa -ffp-contract=fast por padrão em C++).
 ARCH     ?= x86-64-v3
-CXXFLAGS ?= -O3 -g -std=c++17 -march=$(ARCH) -ffp-contract=off
+CXXFLAGS ?= -O3 -g -std=c++17 -march=$(ARCH) -ffp-contract=off -fopenmp
 PERF     ?= $(firstword $(wildcard /usr/lib/linux-tools-*/perf) perf)
 RUNS     ?= 10
 
