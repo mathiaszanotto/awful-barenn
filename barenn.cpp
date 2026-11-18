@@ -70,8 +70,11 @@ public:
         return out;
     }
 
+    // calcula_grad_in = false pula o gradiente da entrada. Use na primeira
+    // camada, cujo gradiente da entrada (em relação à imagem) não é usado.
     const vector<float>& Backward(const vector<float>& grad_out,
-                                  float learning_rate) {
+                                  float learning_rate,
+                                  bool calcula_grad_in = true) {
         // Delta é o gradiente da perda em relação à soma antes da ativação.
         // Na ReLU, o gradiente passa apenas quando essa soma é positiva.
         for (int i = 0; i < out_features; ++i) {
@@ -88,14 +91,22 @@ public:
         //  - Cada peso é lido para grad_in antes de ser atualizado, então o
         //    gradiente da entrada usa os pesos anteriores à atualização.
         //  - O gradiente do peso é delta vezes a entrada; o do viés é o delta.
-        fill(grad_in.begin(), grad_in.end(), 0.0f);
+        if (calcula_grad_in) {
+            fill(grad_in.begin(), grad_in.end(), 0.0f);
+        }
         float* gi = grad_in.data();
         for (int i = 0; i < out_features; ++i) {
             float* w = &weights[static_cast<size_t>(i) * in_features];
             const float d = delta[i];
-            for (int j = 0; j < in_features; ++j) {
-                gi[j] += d * w[j];
-                w[j] -= learning_rate * (d * last_input[j]);
+            if (calcula_grad_in) {
+                for (int j = 0; j < in_features; ++j) {
+                    gi[j] += d * w[j];
+                    w[j] -= learning_rate * (d * last_input[j]);
+                }
+            } else {
+                for (int j = 0; j < in_features; ++j) {
+                    w[j] -= learning_rate * (d * last_input[j]);
+                }
             }
             bias[i] -= learning_rate * d;
         }
@@ -295,7 +306,8 @@ int main(int argc, char** argv) {
                 // Cada Backward também atualiza os parâmetros da sua camada.
                 const auto& grad3 = l3.Backward(gradiente, taxa);
                 const auto& grad2 = l2.Backward(grad3, taxa);
-                l1.Backward(grad2, taxa);
+                // O gradiente em relação à imagem não é usado: a camada 1 não o calcula.
+                l1.Backward(grad2, taxa, false);
             }
             perdas[epoca] = perda_total / treino.size();
         }
