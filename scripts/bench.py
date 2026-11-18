@@ -65,10 +65,13 @@ def main():
     ap.add_argument("--runs", type=int, default=10)
     ap.add_argument("--ref", default="tests/referencia_legado.txt")
     ap.add_argument("--warmup", type=int, default=1)
-    ap.add_argument("args", nargs="*", help="argumentos repassados ao binário")
-    op = ap.parse_args()
+    # Argumentos desconhecidos são repassados ao binário, ex.:
+    #   bench.py ./barenn --runs 5 -- --lote 32
+    op, extras = ap.parse_known_args()
+    if extras and extras[0] == "--":
+        extras = extras[1:]
 
-    cmd = [op.binario] + op.args
+    cmd = [op.binario] + extras
     for _ in range(op.warmup):
         subprocess.run(cmd, capture_output=True, check=True)
 
