@@ -27,87 +27,42 @@ using Barenn::classes;
 using Barenn::entradas;
 
 // ---------------------------------------------------------------------------
-// Kernel persistente: UM lançamento executa todas as épocas e amostras.
+// Kernel persistente warp-síncrono com atualização adiada.
 //
-// O SGD por amostra é sequencial (a amostra n+1 usa os pesos atualizados pela
-// n), então um único bloco de T threads percorre as amostras em ordem. As
-// etapas de cada amostra são fases separadas por __syncthreads(), uma barreira
-// de bloco de dezenas de ciclos, no lugar de ~1,5 us por lançamento de kernel.
-// Ativações e deltas ficam em memória compartilhada; os pesos ficam em memória
-// global (Wt[j * OUT + i], o layout transposto da CPU).
+// UM lançamento executa todas as épocas e amostras, e o SGD por amostra
+// continua sequencial. Em vez de uma fase separada de atualização dos pesos
+// (seguida de barreira), a atualização da amostra n é ADIADA e aplicada no
+// forward da amostra n+1: no forward da camada l, a thread i é a única que lê
+// a coluna i de Wl, então ela aplica
+//     W[i][j] -= lr * (d_n[i] * x_n[j]),   b[i] -= lr * d_n[i]
+// imediatamente antes de usar cada peso. Os valores são exatamente os de
+// "atualizar tudo e depois fazer o forward". O gradiente da entrada da
+// amostra n+1 usa W já com a atualização de n e sem a de n+1, como no
+// legado. A atualização da última amostra é aplicada no fim do treino.
 //
-// Cada elemento é calculado por uma única thread, com a mesma ordem de soma e
-// as mesmas expressões da CPU: a saída é idêntica ao legado (--fmad=false).
+// Nenhuma fase usa mais de 32 threads, então o kernel roda com UM warp e as
+// barreiras são __syncwarp(). Tudo (pesos, ativações, imagens) fica na
+// memória compartilhada. Mesmas operações e mesma ordem da CPU com
+// --fmad=false: saída idêntica ao legado.
 // ---------------------------------------------------------------------------
 
-#ifndef THREADS_TREINO
-#define THREADS_TREINO 512  // melhor valor medido entre 32 e 1024 (issue #13)
-#endif
-
-// y[i] = ativação(b[i] + soma_j x[j] * W[i][j]), uma thread por neurônio i.
-// Threads consecutivas leem Wt[j * OUT + i] consecutivos (coalescido).
-template <int IN, int OUT, bool FINAL, int T>
-__device__ __forceinline__ void fase_forward(const float* x, const float* Wt, const float* b,
-                                             float* z, float* y) {
-    for (int i = threadIdx.x; i < OUT; i += T) {
-        float acc = b[i];
-        for (int j = 0; j < IN; ++j) {
-            acc += x[j] * Wt[j * OUT + i];
-        }
-        z[i] = acc;
-        // Mesma expressão de std::max(0.0f, acc) para preservar o sinal de zero.
-        y[i] = FINAL ? acc : (0.0f < acc ? acc : 0.0f);
-    }
-}
-
-// Gradiente da entrada (pesos ainda NÃO atualizados) e, em seguida, o delta
-// da camada anterior: d_ant[j] = (soma_i d[i] * W[i][j]) * relu'(z_ant[j]).
-template <int IN, int OUT, int T>
-__device__ __forceinline__ void fase_grad_in(const float* d, const float* Wt,
-                                             const float* z_ant, float* d_ant) {
-    for (int j = threadIdx.x; j < IN; j += T) {
-        float sum = 0.0f;
-        for (int i = 0; i < OUT; ++i) {
-            sum += d[i] * Wt[j * OUT + i];
-        }
-        d_ant[j] = sum * (z_ant[j] > 0.0f ? 1.0f : 0.0f);
-    }
-}
-
-// SGD: W[i][j] -= lr * (d[i] * x[j]); b[i] -= lr * d[i]. Threads consecutivas
-// atualizam pesos consecutivos (coalescido).
-template <int IN, int OUT, int T>
-__device__ __forceinline__ void fase_atualiza(const float* d, const float* x, float* Wt,
-                                              float* b, float lr) {
-    for (int idx = threadIdx.x; idx < IN * OUT; idx += T) {
-        const int j = idx / OUT;
-        const int i = idx - j * OUT;
-        Wt[idx] -= lr * (d[i] * x[j]);
-    }
-    for (int i = threadIdx.x; i < OUT; i += T) {
-        b[i] -= lr * d[i];
-    }
-}
-
-// Cópia cooperativa e coalescida: thread t copia os elementos t, t+T, ...
-template <int T>
-__device__ __forceinline__ void copia_bloco(const float* origem, float* destino, int n) {
-    for (int i = threadIdx.x; i < n; i += T) {
-        destino[i] = origem[i];
-    }
-}
+constexpr int threads_treino = 32;  // um warp
+// Stride de linha de W2 na memória compartilhada. Com 16, as 32 threads do
+// grad_in 2 (thread j lê W2[j*16 + i]) caem em 2 dos 32 bancos: conflito de
+// 16 vias. Com 17, cada thread cai num banco diferente.
+constexpr int ld2 = 17;
 
 struct ParametrosGPU {
-    float* W1; float* b1;  // 64 -> 32
-    float* W2; float* b2;  // 32 -> 16
-    float* W3; float* b3;  // 16 -> 10
+    float* W1; float* b1;  // 64 -> 32, Wt[j * 32 + i]
+    float* W2; float* b2;  // 32 -> 16, Wt[j * 16 + i]
+    float* W3; float* b3;  // 16 -> 10, Wt[j * 10 + i]
     unsigned long long* perfil;  // ciclos por fase (só com -DPERFIL_FASES)
 };
 
 // Perfil por fase sem Nsight Compute (indisponível no cluster): a thread 0
 // lê o contador de ciclos do SM (clock64) logo após cada barreira e acumula
-// a duração de cada fase, que inclui a espera pela thread mais lenta.
-constexpr int num_fases = 7;
+// a duração de cada fase.
+constexpr int num_fases = 5;
 #ifdef PERFIL_FASES
 #define MARCA_FASE(f)                                   \
     if (threadIdx.x == 0) {                             \
@@ -119,111 +74,204 @@ constexpr int num_fases = 7;
 #define MARCA_FASE(f)
 #endif
 
-template <int T>
-__global__ void __launch_bounds__(T)
+// Forward do neurônio i com a atualização pendente da sua coluna embutida.
+// Wt tem stride de linha LD; xp/dp são a entrada e o delta da amostra anterior.
+// __restrict__: pesos, viés, entradas e deltas são buffers distintos. Sem
+// isso, o compilador precisa supor que o store em Wt pode alterar x/xp e não
+// pode antecipar as cargas da iteração seguinte; com um único warp, sem
+// outros warps para esconder latência, cada iteração esperaria uma carga da
+// memória compartilhada. O laço é desenrolado por inteiro (IN constante):
+// as cargas e atualizações independentes se sobrepõem, e só as somas de acc
+// continuam encadeadas, na ordem j = 0, 1, ... da CPU.
+template <int IN, int OUT, int LD, bool FINAL>
+__device__ __forceinline__ float forward_neuronio(int i, bool pendente, float lr,
+                                                  float* __restrict__ Wt, float* __restrict__ b,
+                                                  const float* __restrict__ x,
+                                                  const float* __restrict__ xp,
+                                                  const float* __restrict__ dp) {
+    float acc;
+    if (pendente) {
+        const float di = dp[i];
+        const float bi = b[i] - lr * di;
+        b[i] = bi;
+        acc = bi;
+        // Blocos de B elementos: TODAS as cargas do bloco (pesos, x, xp) vão
+        // para registradores antes de qualquer store. O SASS mostrou que,
+        // sem isso, o compilador emitia a carga de xp[j+1] só depois do store
+        // de W[j] (não prova que não se sobrepõem, mesmo com __restrict__),
+        // e cada iteração pagava a latência inteira de uma carga.
+        constexpr int B = IN < 16 ? IN : 16;
+        static_assert(IN % B == 0, "IN deve ser múltiplo do bloco");
+#pragma unroll
+        for (int j0 = 0; j0 < IN; j0 += B) {
+            float w[B], xv[B], xpv[B];
+#pragma unroll
+            for (int u = 0; u < B; ++u) {
+                w[u] = Wt[(j0 + u) * LD + i];
+                xv[u] = x[j0 + u];
+                xpv[u] = xp[j0 + u];
+            }
+#pragma unroll
+            for (int u = 0; u < B; ++u) {
+                w[u] = w[u] - lr * (di * xpv[u]);
+            }
+#pragma unroll
+            for (int u = 0; u < B; ++u) {
+                Wt[(j0 + u) * LD + i] = w[u];
+                acc += xv[u] * w[u];
+            }
+        }
+    } else {
+        acc = b[i];
+#pragma unroll
+        for (int j = 0; j < IN; ++j) {
+            acc += x[j] * Wt[j * LD + i];
+        }
+    }
+    return acc;
+}
+
+// Atualização pendente de uma coluna inteira (usada só no fim do treino).
+template <int IN, int LD>
+__device__ __forceinline__ void aplica_pendente(int i, float lr, float* Wt, float* b,
+                                                const float* xp, const float* dp) {
+    const float di = dp[i];
+    b[i] -= lr * di;
+    for (int j = 0; j < IN; ++j) {
+        Wt[j * LD + i] -= lr * (di * xp[j]);
+    }
+}
+
+__global__ void __launch_bounds__(threads_treino)
 k_treino(const float* __restrict__ imagens, const int* __restrict__ rotulos, int n,
          int epocas, float lr, ParametrosGPU p, float* __restrict__ perdas) {
-    __shared__ float z1[32], a1[32], d1[32];
-    __shared__ float z2[16], a2[16], d2[16];
-    __shared__ float z3[classes], s[classes], d3[classes];
-    // Todos os parâmetros (11,1 KB) ficam na memória compartilhada durante o
-    // treino inteiro: o bloco é o único que os usa, então não há coerência a
-    // manter com outros blocos. Leituras e escritas custam ~20-30 ciclos, sem
-    // passar pela L1/L2 (onde cada escrita invalidava a linha na L1).
+    const int t = threadIdx.x;
     __shared__ float W1[64 * 32], b1[32];
-    __shared__ float W2[32 * 16], b2[16];
+    __shared__ float W2[32 * ld2], b2[16];
     __shared__ float W3[16 * classes], b3[classes];
-    // Buffer duplo da imagem e do rótulo: enquanto a amostra atual usa um
-    // lado, threads ociosas no forward 1 copiam a PRÓXIMA amostra para o
-    // outro, tirando a carga da memória global do caminho crítico.
-    __shared__ float xs[2][entradas];
-    __shared__ int rs[2];
-    copia_bloco<T>(p.W1, W1, 64 * 32);
-    copia_bloco<T>(p.b1, b1, 32);
-    copia_bloco<T>(p.W2, W2, 32 * 16);
-    copia_bloco<T>(p.b2, b2, 16);
-    copia_bloco<T>(p.W3, W3, 16 * classes);
-    copia_bloco<T>(p.b3, b3, classes);
-    copia_bloco<T>(imagens, xs[0], entradas);
-    if (threadIdx.x == 0) {
-        rs[0] = rotulos[0];
-    }
-    __syncthreads();
+    __shared__ float xs[3][entradas];  // imagens: anterior / atual / próxima
+    __shared__ int rs[3];
+    __shared__ float z1[32], a1[2][32], d1[32];  // ativações em buffer duplo
+    __shared__ float z2[16], a2[2][16], d2[16];
+    __shared__ float d3[classes], s[classes];
+
+    for (int q = t; q < 64 * 32; q += threads_treino) W1[q] = p.W1[q];
+    for (int q = t; q < 32 * 16; q += threads_treino) W2[(q / 16) * ld2 + q % 16] = p.W2[q];
+    for (int q = t; q < 16 * classes; q += threads_treino) W3[q] = p.W3[q];
+    b1[t] = p.b1[t];
+    if (t < 16) b2[t] = p.b2[t];
+    if (t < classes) b3[t] = p.b3[t];
+    xs[0][t] = imagens[t];
+    xs[0][t + 32] = imagens[t + 32];
+    if (t == 0) rs[0] = rotulos[0];
+    __syncwarp();
 #ifdef PERFIL_FASES
     unsigned long long ciclos[num_fases] = {};
     long long marca = clock64();
 #endif
 
-    int atual = 0;
+    bool pendente = false;  // há atualização da amostra anterior a aplicar?
+    int atual = 0;          // índice da imagem atual no buffer triplo
+    int par = 0;            // paridade das ativações a1/a2
     for (int epoca = 0; epoca < epocas; ++epoca) {
         for (int k = 0; k < n; ++k) {
+            const int anterior = (atual + 2) % 3, proxima = (atual + 1) % 3;
+            // Prefetch da próxima amostra em registradores: a latência da
+            // memória global fica escondida pelo resto da amostra.
+            const int kp = (k + 1 < n) ? k + 1 : 0;
+            const float pf0 = imagens[static_cast<size_t>(kp) * entradas + t];
+            const float pf1 = imagens[static_cast<size_t>(kp) * entradas + t + 32];
+            const int prot = rotulos[kp];
             const float* x = xs[atual];
-            // Prefetch da próxima amostra (k + 1, ou a primeira da próxima
-            // época) pelas threads 32..95, ociosas no forward 1. O outro lado
-            // do buffer foi usado pela amostra anterior, já encerrada pela
-            // última barreira; a cópia fica visível após a próxima barreira.
-            static_assert(T >= 96, "o prefetch usa as threads 32..95");
-            const int proxima = (k + 1 < n) ? k + 1 : 0;
-            if (threadIdx.x >= 32 && threadIdx.x < 32 + entradas) {
-                xs[atual ^ 1][threadIdx.x - 32] =
-                    imagens[static_cast<size_t>(proxima) * entradas + threadIdx.x - 32];
-            } else if (threadIdx.x == 32 + entradas) {
-                rs[atual ^ 1] = rotulos[proxima];
+            const float* xp = xs[anterior];
+
+            // Fase 0: forward 1 (32 neurônios) com a atualização pendente de W1.
+            {
+                const float acc = forward_neuronio<64, 32, 32, false>(t, pendente, lr, W1, b1, x, xp, d1);
+                z1[t] = acc;
+                a1[par][t] = 0.0f < acc ? acc : 0.0f;
             }
-            fase_forward<64, 32, false, T>(x, W1, b1, z1, a1);
-            __syncthreads();
+            __syncwarp();
             MARCA_FASE(0)
-            fase_forward<32, 16, false, T>(a1, W2, b2, z2, a2);
-            __syncthreads();
+            // Fase 1: forward 2 (16 neurônios) com a atualização pendente de W2.
+            if (t < 16) {
+                const float acc =
+                    forward_neuronio<32, 16, ld2, false>(t, pendente, lr, W2, b2, a1[par], a1[par ^ 1], d2);
+                z2[t] = acc;
+                a2[par][t] = 0.0f < acc ? acc : 0.0f;
+            }
+            __syncwarp();
             MARCA_FASE(1)
-            fase_forward<16, classes, true, T>(a2, W3, b3, z3, s);
-            __syncthreads();
+            // Fase 2: forward 3 (10 neurônios) com a atualização pendente de W3;
+            // o delta da última camada é o erro (gradiente da perda MSE/2).
+            if (t < classes) {
+                const float acc =
+                    forward_neuronio<16, classes, classes, true>(t, pendente, lr, W3, b3, a2[par], a2[par ^ 1], d3);
+                s[t] = acc;
+                d3[t] = acc - (t == rs[atual] ? 1.0f : 0.0f);
+            }
+            __syncwarp();
             MARCA_FASE(2)
-            // Perda MSE/2 e delta da última camada (gradiente dos escores), na
-            // ordem i = 0..9 como na CPU: uma thread.
-            if (threadIdx.x == 0) {
+            // Fase 3: grad_in 3 -> delta 2 (16 threads); a thread 31, ociosa,
+            // soma a perda da amostra na ordem i = 0..9, como na CPU.
+            if (t < 16) {
+                float sum = 0.0f;
+                for (int i = 0; i < classes; ++i) {
+                    sum += d3[i] * W3[t * classes + i];
+                }
+                d2[t] = sum * (z2[t] > 0.0f ? 1.0f : 0.0f);
+            } else if (t == 31) {
                 const int rotulo = rs[atual];
                 float total = 0;
                 for (int i = 0; i < classes; ++i) {
                     const float erro = s[i] - (i == rotulo ? 1.0f : 0.0f);
                     total += 0.5f * erro * erro;
-                    d3[i] = erro;
                 }
                 perdas[static_cast<size_t>(epoca) * n + k] = total;
             }
-            __syncthreads();
+            __syncwarp();
             MARCA_FASE(3)
-            // Camada 3: gradiente da entrada antes de atualizar W3.
-            fase_grad_in<16, classes, T>(d3, W3, z2, d2);
-            __syncthreads();
+            // Fase 4: grad_in 2 -> delta 1 (32 threads, sem conflito de banco
+            // graças ao stride 17) e gravação da próxima imagem no buffer.
+            {
+                float sum = 0.0f;
+                for (int i = 0; i < 16; ++i) {
+                    sum += d2[i] * W2[t * ld2 + i];
+                }
+                d1[t] = sum * (z1[t] > 0.0f ? 1.0f : 0.0f);
+                xs[proxima][t] = pf0;
+                xs[proxima][t + 32] = pf1;
+                if (t == 0) rs[proxima] = prot;
+            }
+            __syncwarp();
             MARCA_FASE(4)
-            // W3 e o gradiente da camada 2 (que só lê W2) não conflitam.
-            fase_atualiza<16, classes, T>(d3, a2, W3, b3, lr);
-            fase_grad_in<32, 16, T>(d2, W2, z1, d1);
-            __syncthreads();
-            MARCA_FASE(5)
-            fase_atualiza<32, 16, T>(d2, a1, W2, b2, lr);
-            fase_atualiza<64, 32, T>(d1, x, W1, b1, lr);
-            // Os pesos precisam estar atualizados antes do forward seguinte.
-            __syncthreads();
-            MARCA_FASE(6)
-            atual ^= 1;
+            pendente = true;
+            atual = proxima;
+            par ^= 1;
         }
     }
+
+    // Aplica a atualização da última amostra e devolve os parâmetros.
+    if (pendente) {
+        const float* xp = xs[(atual + 2) % 3];
+        aplica_pendente<64, 32>(t, lr, W1, b1, xp, d1);
+        if (t < 16) aplica_pendente<32, ld2>(t, lr, W2, b2, a1[par ^ 1], d2);
+        if (t < classes) aplica_pendente<16, classes>(t, lr, W3, b3, a2[par ^ 1], d3);
+    }
+    __syncwarp();
+    for (int q = t; q < 64 * 32; q += threads_treino) p.W1[q] = W1[q];
+    for (int q = t; q < 32 * 16; q += threads_treino) p.W2[q] = W2[(q / 16) * ld2 + q % 16];
+    for (int q = t; q < 16 * classes; q += threads_treino) p.W3[q] = W3[q];
+    p.b1[t] = b1[t];
+    if (t < 16) p.b2[t] = b2[t];
+    if (t < classes) p.b3[t] = b3[t];
 #ifdef PERFIL_FASES
-    if (threadIdx.x == 0) {
+    if (t == 0) {
         for (int f = 0; f < num_fases; ++f) {
             p.perfil[f] = ciclos[f];
         }
     }
 #endif
-    // Parâmetros treinados de volta à memória global (para a cópia D2H).
-    copia_bloco<T>(W1, p.W1, 64 * 32);
-    copia_bloco<T>(b1, p.b1, 32);
-    copia_bloco<T>(W2, p.W2, 32 * 16);
-    copia_bloco<T>(b2, p.b2, 16);
-    copia_bloco<T>(W3, p.W3, 16 * classes);
-    copia_bloco<T>(b3, p.b3, classes);
 }
 
 // ---------------------------------------------------------------------------
@@ -312,9 +360,8 @@ void treinar(Barenn::Camada1& l1, Barenn::Camada2& l2, Barenn::Camada3& l3,
     // Um único lançamento: um bloco percorre todas as épocas e amostras.
     const ParametrosGPU p{g1.W.get(), g1.b.get(), g2.W.get(), g2.b.get(),
                           g3.W.get(), g3.b.get(), d_perfil.get()};
-    k_treino<THREADS_TREINO><<<1, THREADS_TREINO>>>(d_imagens.get(), d_rotulos.get(), n,
-                                                    static_cast<int>(EPOCAS), taxa, p,
-                                                    d_perdas.get());
+    k_treino<<<1, threads_treino>>>(d_imagens.get(), d_rotulos.get(), n,
+                                    static_cast<int>(EPOCAS), taxa, p, d_perdas.get());
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaEventRecord(ev[2]));
 
@@ -412,14 +459,14 @@ int main(int argc, char** argv) {
              << prop.major << "." << prop.minor << ") | contexto " << tempo_contexto.count()
              << " s | H2D " << tempos.h2d_ms << " ms | kernels " << tempos.kernels_ms
              << " ms | D2H " << tempos.d2h_ms << " ms | lancamentos " << tempos.lancamentos
-             << " | threads " << THREADS_TREINO << " | " << setprecision(3)
+             << " | threads " << BarennGPU::threads_treino << " | " << setprecision(3)
              << 1000.0 * tempos.kernels_ms / (static_cast<double>(epocas) * treino.size())
              << " us/amostra\n";
 #ifdef PERFIL_FASES
         // Perfil por fase (clock64 da thread 0), em ciclos por amostra.
         const char* nomes[BarennGPU::num_fases] = {
-            "forward 1 (64->32)", "forward 2 (32->16)", "forward 3 (16->10)", "perda + delta 3",
-            "grad_in 3 + delta 2", "atualiza W3 + grad_in 2", "atualiza W2 + W1"};
+            "atualiza W1 + forward 1", "atualiza W2 + forward 2", "atualiza W3 + forward 3",
+            "grad_in 3 + perda", "grad_in 2 + prefetch"};
         double total = 0;
         for (auto c : tempos.ciclos_fase) {
             total += static_cast<double>(c);

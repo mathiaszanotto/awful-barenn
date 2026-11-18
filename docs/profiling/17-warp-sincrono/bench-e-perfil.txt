@@ -1,0 +1,30 @@
+# Franky compute20: i9-14900 + NVIDIA RTX A1000 (18 SMs, cc 8.6), CUDA 12.8
+# ptxas k_treino (1 warp): 62 registradores, 0 spill, 12 868 B de smem, 0 barreiras de bloco
+
+== Contribuição de cada passo (treino; scripts/bench.py --runs 5)
+| v1.2 (512 threads, 7 __syncthreads/amostra)               | 0,4125 s | 3 594 ciclos/amostra |
+| + atualização adiada no forward, 1 warp, padding W2       | 0,6567 s | 6 138 ciclos/amostra |
+|   (+ __restrict__ e #pragma unroll, sem efeito relevante)  | 0,6306 s | 5 846 ciclos/amostra |
+| + cargas em blocos de 16 para registradores (ILP)         | 0,2771 s | 2 400 ciclos/amostra |
+
+== Padding de W2 na memória compartilhada (versão final)
+| stride 16 (conflito de 16 vias no grad_in 2) | 0,2829 s | fase grad_in 2: 226 ciclos/amostra |
+| stride 17                                    | 0,2771 s | fase grad_in 2: 159 ciclos/amostra |
+
+== scripts/franky_bench.sh (10 execuções)
+CPU v0.5 : treino media 0.1104 s | desvio 0.0005 s | IDENTICA
+GPU v1.3 : treino media 0.2806 s | desvio 0.0096 s | IDENTICA
+[gpu] contexto 1.6431 s | H2D 0.1423 ms | kernels 276.5199 ms | D2H 0.1476 ms | lancamentos 1 | threads 32 | 1.418 us/amostra
+
+== Perfil por fase (-DPERFIL_FASES, clock64 da thread 0)
+                            antes do bloco de cargas   versão final
+total                       6138 ciclos/amostra        2400 ciclos/amostra (1,65 GHz)
+atualiza W1 + forward 1     3179 (51,8 %)              975 (40,6 %)
+atualiza W2 + forward 2     1542 (25,1 %)              540 (22,5 %)
+atualiza W3 + forward 3      883 (14,4 %)              374 (15,6 %)
+grad_in 3 + perda            363 ( 5,9 %)              352 (14,7 %)
+grad_in 2 + prefetch         171 ( 2,8 %)              159 ( 6,6 %)
+
+== SASS (cuobjdump -sass), antes do bloco de cargas: cada iteração do forward 1
+   LDS xp[j] -> FMUL -> FMUL -> FADD -> STS W[j] -> LDS xp[j+1] ...
+   (cargas de W antecipadas, mas as de x/xp presas atrás do STS anterior)
