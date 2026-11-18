@@ -1,6 +1,12 @@
 # Build do Barenn (CPU). Testado em Ubuntu 24.04 (WSL2) com g++ 13.3.
 CXX      ?= g++
-CXXFLAGS ?= -O2 -g -std=c++17
+# ARCH: nível de ISA x86-64 (portátil entre máquinas, ao contrário de -march=native).
+#   x86-64-v3 = AVX2 + FMA (Haswell/Zen 1 em diante)  -> padrão
+#   x86-64-v4 = AVX-512 (Skylake-X, Ice/Tiger Lake, Zen 4) -> make ARCH=x86-64-v4
+# -ffp-contract=off: sem fusão a*b+c em FMA, para manter o arredondamento do legado
+# (o gcc usa -ffp-contract=fast por padrão em C++).
+ARCH     ?= x86-64-v3
+CXXFLAGS ?= -O3 -g -std=c++17 -march=$(ARCH) -ffp-contract=off
 PERF     ?= $(firstword $(wildcard /usr/lib/linux-tools-*/perf) perf)
 RUNS     ?= 10
 

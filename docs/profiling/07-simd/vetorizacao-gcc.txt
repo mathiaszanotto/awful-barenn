@@ -1,0 +1,8 @@
+barenn.cpp:44:23: optimized: loop vectorized using 32 byte vectors
+barenn.cpp:47:27: optimized: loop vectorized using 32 byte vectors
+barenn.cpp:51:23: optimized: loop vectorized using 32 byte vectors
+barenn.cpp:52:14: optimized: basic block part vectorized using 32 byte vectors
+barenn.cpp:72:23: optimized: loop vectorized using 32 byte vectors
+barenn.cpp:82:27: optimized: loop vectorized using 32 byte vectors
+barenn.cpp:87:23: optimized: loop vectorized using 32 byte vectors
+barenn.cpp:88:14: optimized: basic block part vectorized using 32 byte vectors
