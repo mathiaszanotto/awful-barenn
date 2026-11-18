@@ -1,0 +1,25 @@
+    81.38%  [.] main
+     3.21%  [.] std::num_get<char, std::istreambuf_iterator<char, std::char_traits<char> > >::_M_extract_float(std::istreambuf_iterator<char, std::char_traits<char> >, std::istreambuf_iterator<char, std::char_traits<char> >, std::ios_base&, std::_Ios_Iostate&, std::string&) const
+     2.30%  [.] std::istream::sentry::sentry(std::istream&, bool)
+     1.62%  [.] __GI_____strtof_l_internal
+     0.90%  [.] std::num_get<char, std::istreambuf_iterator<char, std::char_traits<char> > >::do_get(std::istreambuf_iterator<char, std::char_traits<char> >, std::istreambuf_iterator<char, std::char_traits<char> >, std::ios_base&, std::_Ios_Iostate&, float&) const
+     0.85%  [.] malloc
+     0.69%  [.] _int_free
+     0.60%  [.] std::istream& std::istream::_M_extract<float>(float&)
+     0.57%  [.] Barenn::ler_dados(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)
+     0.52%  [.] void std::__convert_to_v<float>(char const*, float&, std::_Ios_Iostate&, __locale_struct* const&)
+     0.50%  [.] cfree@GLIBC_2.2.5
+     0.43%  [.] std::string::reserve(unsigned long)
+     0.41%  [.] 0x000000000011651d
+     0.37%  [.] std::basic_istream<char, std::char_traits<char> >& std::operator>><char, std::char_traits<char> >(std::basic_istream<char, std::char_traits<char> >&, char&)
+     0.33%  [.] __mpn_lshift
+     0.32%  [.] str_to_mpn.isra.0
+     0.31%  [.] pthread_once@plt
+     0.31%  [.] round_and_return
+     0.30%  [.] __correctly_grouped_prefixmb
+     0.28%  [.] Barenn::avaliar(Barenn::DenseLayer<64, 32, false>&, Barenn::DenseLayer<32, 16, false>&, Barenn::DenseLayer<16, 10, true>&, std::vector<Barenn::Amostra, std::allocator<Barenn::Amostra> > const&)
+     0.24%  [.] std::string::push_back(char)
+     0.19%  [.] operator new(unsigned long)@plt
+     0.18%  [.] __strlen_evex
+     0.18%  [.] std::locale::facet::_S_get_c_locale()@plt
+     0.14%  [.] std::istream& std::istream::_M_extract<float>(float&)@plt
