@@ -1,0 +1,18 @@
+[fases] leitura 0.0199 s | treino 0.1588 s | avaliacao 0.0006 s
+[fases] leitura 0.0224 s | treino 0.1605 s | avaliacao 0.0006 s
+[fases] leitura 0.0209 s | treino 0.1601 s | avaliacao 0.0006 s
+[fases] leitura 0.0227 s | treino 0.1591 s | avaliacao 0.0006 s
+[fases] leitura 0.0207 s | treino 0.1596 s | avaliacao 0.0007 s
+
+ Performance counter stats for './barenn' (5 runs):
+
+         718679801      cycles:u                                                                ( +-  0.34% )
+        1834327460      instructions:u                   #    2.55  insn per cycle              ( +-  0.00% )
+         531012721      L1-dcache-loads:u                                                       ( +-  0.00% )
+           1116180      L1-dcache-load-misses:u          #    0.21% of all L1-dcache accesses   ( +-  0.85% )
+            820925      cache-references:u                                                      ( +-  1.86% )
+             88499      cache-misses:u                   #   10.78% of all cache refs           ( +-  3.51% )
+           2289761      branch-misses:u                                                         ( +-  0.22% )
+
+           0.19017 +- 0.00110 seconds time elapsed  ( +-  0.58% )
+

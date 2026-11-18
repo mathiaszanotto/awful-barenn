@@ -1,0 +1,20 @@
+    95.91%  [.] main
+     1.17%  [.] std::from_chars(char const*, char const*, float&, std::chars_format)
+     0.64%  [.] isspace
+     0.50%  [.] Barenn::ler_dados(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)
+     0.33%  [.] Barenn::interpretar_linha(char const*, char const*, Barenn::Amostra&)
+     0.28%  [.] Barenn::avaliar(Barenn::DenseLayer<64, 32, false>&, Barenn::DenseLayer<32, 16, false>&, Barenn::DenseLayer<16, 10, true>&, std::vector<Barenn::Amostra, std::allocator<Barenn::Amostra> > const&)
+     0.20%  [.] std::from_chars(char const*, char const*, float&, std::chars_format)@plt
+     0.14%  [.] _int_free
+     0.13%  [.] __memchr_evex
+     0.11%  [k] 0xffffffffb12013a0
+     0.10%  [.] _int_malloc
+     0.10%  [.] _dl_relocate_object
+     0.10%  [.] void std::vector<Barenn::Amostra, std::allocator<Barenn::Amostra> >::_M_realloc_insert<Barenn::Amostra>(__gnu_cxx::__normal_iterator<Barenn::Amostra*, std::vector<Barenn::Amostra, std::allocator<Barenn::Amostra> > >, Barenn::Amostra&&)
+     0.08%  [.] __memset_evex_unaligned_erms
+     0.06%  [.] std::basic_filebuf<char, std::char_traits<char> >::underflow()
+     0.05%  [.] isspace@plt
+     0.04%  [.] _dl_lookup_symbol_x
+     0.03%  [.] strcmp
+     0.02%  [.] log2@@GLIBC_2.29
+     0.02%  [.] _dl_map_object_from_fd
