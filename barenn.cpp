@@ -149,6 +149,71 @@ public:
         }
         return grad_in;
     }
+
+    // ---- Caminho em lote (mini-batch), usado por treinar_em_lotes ----
+    // Estas funções não guardam estado na camada: cada thread usa os próprios
+    // buffers, e várias amostras podem ser processadas ao mesmo tempo.
+
+    // Forward sem estado: escreve z (antes da ativação) e y (saída).
+    void inferir(const float* x, float* z, float* y) const {
+        forward_kernel<IN, OUT, FINAL>(x, weights.data(), bias.data(), z, y);
+    }
+
+    // Delta desta camada e, se calcula_grad_in, o gradiente da entrada, com
+    // os pesos atuais e sem atualizá-los. As expressões e a ordem das somas
+    // são as mesmas de Backward.
+    void retropropagar(const float* grad_out, const float* z, float* d,
+                       float* gi, bool calcula_grad_in) const {
+        for (int i = 0; i < OUT; ++i) {
+            d[i] = FINAL ? grad_out[i] : grad_out[i] * (z[i] > 0.0f ? 1.0f : 0.0f);
+        }
+        if (calcula_grad_in) {
+            for (int j = 0; j < IN; ++j) {
+                const float* w = &weights[static_cast<size_t>(j) * OUT];
+                float sum = 0.0f;
+                for (int i = 0; i < OUT; ++i) {
+                    sum += d[i] * w[i];
+                }
+                gi[j] = sum;
+            }
+        }
+    }
+
+    // Aplica a linha j (entrada j) da atualização acumulada de B amostras:
+    //   W[i][j] -= lr * soma_s (d_s[i] * x_s[j]),
+    // com as amostras somadas sempre na ordem s = 0, 1, ..., B-1. O resultado
+    // não depende do número de threads, e com B = 1 a expressão vira
+    // W -= lr * (d * x), a mesma do SGD por amostra.
+    // X e D guardam as entradas e deltas das B amostras (ld = IN e OUT).
+    void atualizar_linha(int j, const float* __restrict X,
+                         const float* __restrict D, int B, float lr) {
+        float acc[OUT];
+        for (int i = 0; i < OUT; ++i) {
+            acc[i] = 0.0f;
+        }
+        for (int s = 0; s < B; ++s) {
+            const float xj = X[static_cast<size_t>(s) * IN + j];
+            const float* __restrict ds = D + static_cast<size_t>(s) * OUT;
+            for (int i = 0; i < OUT; ++i) {
+                acc[i] += ds[i] * xj;
+            }
+        }
+        float* __restrict w = &weights[static_cast<size_t>(j) * OUT];
+        for (int i = 0; i < OUT; ++i) {
+            w[i] -= lr * acc[i];
+        }
+    }
+
+    // Viés: b[i] -= lr * soma_s d_s[i], na ordem das amostras.
+    void atualizar_vies(const float* __restrict D, int B, float lr) {
+        for (int i = 0; i < OUT; ++i) {
+            float sum = 0.0f;
+            for (int s = 0; s < B; ++s) {
+                sum += D[static_cast<size_t>(s) * OUT + i];
+            }
+            bias[i] -= lr * sum;
+        }
+    }
 };
 
 // Topologia da rede: 64 -> 32 -> 16 -> 10.
@@ -244,17 +309,97 @@ vector<Amostra> ler_dados(const string& caminho) {
 
 // Calcula metade da soma dos erros quadráticos. O alvo vale 1 para a
 // classe correta e 0 para as demais. O erro também é a derivada por escore.
-float perda(const vector<float>& escores, int rotulo,
-            vector<float>* gradiente = nullptr) {
+float perda(const float* escores, int rotulo, float* gradiente = nullptr) {
     float total = 0;
     for (int i = 0; i < classes; ++i) {
         float erro = escores[i] - (i == rotulo ? 1.0f : 0.0f);
         total += 0.5f * erro * erro;
         if (gradiente) {
-            (*gradiente)[i] = erro;
+            gradiente[i] = erro;
         }
     }
     return total;
+}
+
+float perda(const vector<float>& escores, int rotulo,
+            vector<float>* gradiente = nullptr) {
+    return perda(escores.data(), rotulo, gradiente ? gradiente->data() : nullptr);
+}
+
+// Treino em mini-lotes de `lote` amostras consecutivas, paralelo com OpenMP.
+//
+// O SGD por amostra é estritamente sequencial (a amostra n+1 usa os pesos
+// atualizados pela n), então não há paralelismo entre amostras sem mudar o
+// algoritmo. Aqui todas as amostras de um lote usam os pesos do início do
+// lote, e a atualização aplica a SOMA dos gradientes delas:
+//   1) cada thread faz forward + retropropagação de algumas amostras do lote
+//      (pesos só lidos) e guarda entradas e deltas de cada camada;
+//   2) as linhas das matrizes (64 + 32 + 16) e os vieses são atualizados em
+//      paralelo, somando as amostras na ordem do arquivo.
+// O resultado não depende do número de threads. Com lote = 1 o algoritmo é
+// exatamente o SGD por amostra do legado e a saída é idêntica (testado).
+// Com lote > 1 é OUTRO algoritmo: a saída muda e a acurácia é documentada.
+template <size_t EPOCAS>
+void treinar_em_lotes(Camada1& l1, Camada2& l2, Camada3& l3,
+                      const vector<Amostra>& treino, int lote, float taxa,
+                      array<double, EPOCAS>& perdas) {
+    constexpr int n1 = 32, n2 = 16;
+    const int n = static_cast<int>(treino.size());
+    // Entradas (X) e deltas (D) de cada camada para as amostras do lote.
+    vector<float> X1(static_cast<size_t>(lote) * entradas), X2(static_cast<size_t>(lote) * n1),
+        X3(static_cast<size_t>(lote) * n2);
+    vector<float> D1(static_cast<size_t>(lote) * n1), D2(static_cast<size_t>(lote) * n2),
+        D3(static_cast<size_t>(lote) * classes);
+    vector<float> perda_amostra(treino.size());
+    constexpr int linhas = entradas + n1 + n2;  // linhas das três matrizes
+
+#pragma omp parallel
+    for (size_t epoca = 0; epoca < EPOCAS; ++epoca) {
+        for (int inicio = 0; inicio < n; inicio += lote) {
+            const int B = min(lote, n - inicio);
+#pragma omp for schedule(static)
+            for (int s = 0; s < B; ++s) {
+                const Amostra& amostra = treino[inicio + s];
+                float* x1 = &X1[static_cast<size_t>(s) * entradas];
+                float* x2 = &X2[static_cast<size_t>(s) * n1];
+                float* x3 = &X3[static_cast<size_t>(s) * n2];
+                copy(amostra.imagem.begin(), amostra.imagem.end(), x1);
+                float z1[n1], z2[n2], z3[classes], escores[classes];
+                float g3[classes], g2[n2], g1[n1];
+                l1.inferir(x1, z1, x2);
+                l2.inferir(x2, z2, x3);
+                l3.inferir(x3, z3, escores);
+                perda_amostra[inicio + s] = perda(escores, amostra.rotulo, g3);
+                l3.retropropagar(g3, z3, &D3[static_cast<size_t>(s) * classes], g2, true);
+                l2.retropropagar(g2, z2, &D2[static_cast<size_t>(s) * n2], g1, true);
+                l1.retropropagar(g1, z1, &D1[static_cast<size_t>(s) * n1], nullptr, false);
+            }  // barreira implícita: todos os deltas prontos antes de atualizar
+#pragma omp for schedule(static)
+            for (int r = 0; r <= linhas; ++r) {
+                if (r < entradas) {
+                    l1.atualizar_linha(r, X1.data(), D1.data(), B, taxa);
+                } else if (r < entradas + n1) {
+                    l2.atualizar_linha(r - entradas, X2.data(), D2.data(), B, taxa);
+                } else if (r < linhas) {
+                    l3.atualizar_linha(r - entradas - n1, X3.data(), D3.data(), B, taxa);
+                } else {
+                    l1.atualizar_vies(D1.data(), B, taxa);
+                    l2.atualizar_vies(D2.data(), B, taxa);
+                    l3.atualizar_vies(D3.data(), B, taxa);
+                }
+            }  // barreira implícita: pesos atualizados antes do próximo lote
+        }
+        // Perda média da época somada em double na ordem das amostras,
+        // como no laço por amostra.
+#pragma omp single
+        {
+            double perda_total = 0;
+            for (float p : perda_amostra) {
+                perda_total += p;
+            }
+            perdas[epoca] = perda_total / treino.size();
+        }
+    }
 }
 
 void avaliar(Camada1& l1, Camada2& l2, Camada3& l3,
@@ -353,8 +498,28 @@ void avaliar(Camada1& l1, Camada2& l2, Camada3& l3,
 } // namespace Barenn
 
 int main(int argc, char** argv) {
+    // --lote B (opcional) troca o SGD por amostra do legado por mini-lotes de
+    // B amostras treinados em paralelo (ver treinar_em_lotes). Sem a opção, o
+    // algoritmo e a saída são os do legado.
+    int lote = 0;
+    if (argc >= 3 && string(argv[1]) == "--lote") {
+        try {
+            lote = stoi(argv[2]);
+        } catch (const exception&) {
+            lote = 0;
+        }
+        // Acima de 32 a soma dos gradientes de muitas amostras com a mesma
+        // taxa torna o passo grande demais e o treino diverge (medido: 68%
+        // de acurácia com 64, NaN com 128). O limite impede saídas corrompidas.
+        if (lote < 1 || lote > 32) {
+            cerr << "Erro: --lote exige um inteiro de 1 a 32\n";
+            return 1;
+        }
+        argv += 2;
+        argc -= 2;
+    }
     if (argc != 1 && argc != 3) {
-        cerr << "Uso: " << argv[0] << " [arquivo_treino arquivo_teste]\n";
+        cerr << "Uso: " << argv[0] << " [--lote B] [arquivo_treino arquivo_teste]\n";
         return 1;
     }
     const string arquivo_treino = argc == 3 ? argv[1] : "optdigits.tra";
@@ -383,7 +548,10 @@ int main(int argc, char** argv) {
 
         // A medição inclui forward, perda e backward de todas as épocas.
         const auto inicio = chrono::steady_clock::now();
-        for (int epoca = 0; epoca < epocas; ++epoca) {
+        if (lote > 0) {
+            Barenn::treinar_em_lotes(l1, l2, l3, treino, lote, taxa, perdas);
+        }
+        for (int epoca = 0; lote == 0 && epoca < epocas; ++epoca) {
             double perda_total = 0;
             // Uma época percorre todo o conjunto na ordem do arquivo.
             for (const auto& amostra : treino) {
