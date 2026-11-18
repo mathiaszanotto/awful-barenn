@@ -1,13 +1,14 @@
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <chrono>
+#include <cstring>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <random>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -160,41 +161,82 @@ struct Amostra {
     int rotulo;
 };
 
+// Interpreta uma linha "a0,a1,...,a63,rotulo" com as mesmas regras do
+// parser original (istringstream + operator>>): espaços em volta dos campos
+// são ignorados, cada atributo é seguido por vírgula, os atributos ficam em
+// [0, 16] e o rótulo é um inteiro de 0 a 9 sem nada depois além de espaços.
+// std::from_chars converte sem locale, sem sentry e sem cópia da linha.
+bool interpretar_linha(const char* p, const char* fim, Amostra& amostra) {
+    const auto pula_espacos = [&] {
+        while (p < fim && isspace(static_cast<unsigned char>(*p))) {
+            ++p;
+        }
+    };
+    amostra.imagem.resize(entradas);
+    for (int i = 0; i < entradas; ++i) {
+        pula_espacos();
+        if (p < fim && *p == '+') {  // operator>> também aceita sinal '+'
+            ++p;
+        }
+        float valor;
+        const auto [resto, erro] = from_chars(p, fim, valor);
+        if (erro != errc()) {
+            return false;
+        }
+        p = resto;
+        pula_espacos();
+        if (p == fim || *p != ',' || !isfinite(valor) || valor < 0 || valor > 16) {
+            return false;
+        }
+        ++p;
+        // Converte os valores de [0, 16] para [0, 1].
+        amostra.imagem[i] = valor / 16.0f;
+    }
+    // Depois dos atributos, deve restar apenas o rótulo de 0 a 9.
+    pula_espacos();
+    if (p < fim && *p == '+') {
+        ++p;
+    }
+    const auto [resto, erro] = from_chars(p, fim, amostra.rotulo);
+    if (erro != errc() || amostra.rotulo < 0 || amostra.rotulo >= classes) {
+        return false;
+    }
+    p = resto;
+    pula_espacos();
+    return p == fim;
+}
+
 vector<Amostra> ler_dados(const string& caminho) {
-    ifstream arquivo(caminho);
+    ifstream arquivo(caminho, ios::binary);
     if (!arquivo) {
         throw runtime_error("Não foi possível abrir " + caminho);
     }
+    // Lê o arquivo inteiro de uma vez (≈ 0,5 MB) em vez de linha a linha.
+    const string conteudo{istreambuf_iterator<char>(arquivo),
+                          istreambuf_iterator<char>()};
+    if (arquivo.bad()) {
+        throw runtime_error("Falha de leitura ou arquivo vazio: " + caminho);
+    }
 
     vector<Amostra> dados;
-    string linha;
+    const char* p = conteudo.data();
+    const char* const fim = p + conteudo.size();
     size_t numero_linha = 0;
-    while (getline(arquivo, linha)) {
+    // Mesma divisão de linhas do getline: '\n' termina a linha e um '\n'
+    // final não gera uma linha vazia extra.
+    while (p < fim) {
+        const char* quebra = static_cast<const char*>(memchr(p, '\n', fim - p));
+        const char* fim_linha = quebra ? quebra : fim;
         ++numero_linha;
-        istringstream campos(linha);
         Amostra amostra{};
-        // Cada atributo deve ser seguido por vírgula, inclusive o último.
-        for (int i = 0; i < entradas; ++i) {
-            float valor;
-            char separador;
-            if (!(campos >> valor >> separador) || separador != ',' ||
-                !isfinite(valor) || valor < 0 || valor > 16) {
-                break;
-            }
-            // Converte os valores de [0, 16] para [0, 1].
-            amostra.imagem.push_back(valor / 16.0f);
-        }
-        // Depois dos atributos, deve restar apenas o rótulo de 0 a 9.
-        if (amostra.imagem.size() != entradas ||
-            !(campos >> amostra.rotulo) ||
-            amostra.rotulo < 0 || amostra.rotulo >= classes ||
-            !(campos >> ws).eof()) {
+        if (!interpretar_linha(p, fim_linha, amostra)) {
             throw runtime_error(caminho + ":" + to_string(numero_linha) +
                 " — esperados 64 atributos de 0 a 16 e um rótulo inteiro de 0 a 9");
         }
         dados.push_back(move(amostra));
+        p = quebra ? quebra + 1 : fim;
     }
-    if (arquivo.bad() || dados.empty()) {
+    if (dados.empty()) {
         throw runtime_error("Falha de leitura ou arquivo vazio: " + caminho);
     }
     return dados;
