@@ -319,8 +319,13 @@ int main(int argc, char** argv) {
     const string arquivo_teste = argc == 3 ? argv[2] : "optdigits.tes";
 
     try {
+        // Cronômetros por fase vão para stderr: a saída validada (stdout)
+        // continua igual à do legado.
+        using relogio = chrono::steady_clock;
+        const auto t_leitura = relogio::now();
         const auto treino = Barenn::ler_dados(arquivo_treino);
         const auto teste = Barenn::ler_dados(arquivo_teste);
+        const chrono::duration<double> tempo_leitura = relogio::now() - t_leitura;
         if (filesystem::equivalent(arquivo_treino, arquivo_teste)) {
             throw runtime_error("Use arquivos distintos para treino e teste.");
         }
@@ -362,7 +367,13 @@ int main(int argc, char** argv) {
                  << " | perda media " << perdas[epoca] << "\n";
         }
         cout << "Tempo de treino " << tempo.count() << " s\n";
+        const auto t_avaliacao = relogio::now();
         Barenn::avaliar(l1, l2, l3, teste);
+        cout.flush();
+        const chrono::duration<double> tempo_avaliacao = relogio::now() - t_avaliacao;
+        cerr << fixed << setprecision(4) << "[fases] leitura " << tempo_leitura.count()
+             << " s | treino " << tempo.count() << " s | avaliacao "
+             << tempo_avaliacao.count() << " s\n";
     } catch (const exception& erro) {
         cerr << "Erro: " << erro.what() << "\n";
         return 1;

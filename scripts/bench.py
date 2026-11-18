@@ -20,6 +20,8 @@ TEMPO_RE = re.compile(r"Tempo de treino ([0-9.]+) s")
 PERDA_RE = re.compile(r"Epoca +(\d+)/\d+ \| perda media ([0-9.]+)")
 ACC_RE = re.compile(r"Acuracia ([0-9.]+)% \| (\d+) acertos")
 PERDA_TESTE_RE = re.compile(r"Perda media ([0-9.]+)")
+# Cronômetros por fase impressos em stderr (a partir de v0.5).
+FASES_RE = re.compile(r"\[fases\] leitura ([0-9.]+) s \| treino [0-9.]+ s \| avaliacao ([0-9.]+) s")
 
 # Tolerâncias usadas quando a saída não é idêntica byte a byte (por exemplo,
 # quando uma otimização muda a ordem das somas em ponto flutuante).
@@ -70,7 +72,7 @@ def main():
     for _ in range(op.warmup):
         subprocess.run(cmd, capture_output=True, check=True)
 
-    treinos, paredes, primeira = [], [], None
+    treinos, paredes, leituras, avaliacoes, primeira = [], [], [], [], None
     for _ in range(op.runs):
         t0 = time.perf_counter()
         r = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -79,6 +81,10 @@ def main():
         if not m:
             sys.exit("linha 'Tempo de treino' não encontrada na saída")
         treinos.append(float(m.group(1)))
+        f = FASES_RE.search(r.stderr)
+        if f:
+            leituras.append(float(f.group(1)))
+            avaliacoes.append(float(f.group(2)))
         primeira = primeira or r.stdout
 
     def resumo(v):
@@ -90,6 +96,11 @@ def main():
     print(f"binario: {' '.join(cmd)} | execucoes: {op.runs} (+{op.warmup} aquecimento)")
     print(f"treino : media {mt:.4f} s | desvio {dt:.4f} s | min {nt:.4f} s | mediana {medt:.4f} s")
     print(f"parede : media {mp:.4f} s | desvio {dp:.4f} s | min {np_:.4f} s | mediana {medp:.4f} s")
+    if leituras:
+        ml, dl, nl, _ = resumo(leituras)
+        ma, da, na, _ = resumo(avaliacoes)
+        print(f"leitura: media {ml:.4f} s | desvio {dl:.4f} s | min {nl:.4f} s")
+        print(f"avalia.: media {ma:.4f} s | desvio {da:.4f} s | min {na:.4f} s")
 
     with open(op.ref, encoding="utf-8") as f:
         status, det = comparar(primeira, f.read())
