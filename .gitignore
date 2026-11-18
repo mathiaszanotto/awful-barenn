@@ -1,0 +1,10 @@
+barenn
+barenn_cuda
+*.o
+perf.data*
+callgrind.out
+cachegrind.out
+*.nsys-rep
+*.ncu-rep
+*.sqlite
+__pycache__/
