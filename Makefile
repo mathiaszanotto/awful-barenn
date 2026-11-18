@@ -14,7 +14,7 @@ RUNS     ?= 10
 
 all: barenn
 
-barenn: barenn.cpp
+barenn: barenn.cpp barenn.hpp
 	$(CXX) $(CXXFLAGS) $< -o $@
 
 # Benchmark com repetições + validação contra a saída do legado.
