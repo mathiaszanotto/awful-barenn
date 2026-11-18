@@ -89,6 +89,14 @@ __device__ __forceinline__ void fase_atualiza(const float* d, const float* x, fl
     }
 }
 
+// Cópia cooperativa e coalescida: thread t copia os elementos t, t+T, ...
+template <int T>
+__device__ __forceinline__ void copia_bloco(const float* origem, float* destino, int n) {
+    for (int i = threadIdx.x; i < n; i += T) {
+        destino[i] = origem[i];
+    }
+}
+
 struct ParametrosGPU {
     float* W1; float* b1;  // 64 -> 32
     float* W2; float* b2;  // 32 -> 16
@@ -102,15 +110,29 @@ k_treino(const float* __restrict__ imagens, const int* __restrict__ rotulos, int
     __shared__ float z1[32], a1[32], d1[32];
     __shared__ float z2[16], a2[16], d2[16];
     __shared__ float z3[classes], s[classes], d3[classes];
+    // Todos os parâmetros (11,1 KB) ficam na memória compartilhada durante o
+    // treino inteiro: o bloco é o único que os usa, então não há coerência a
+    // manter com outros blocos. Leituras e escritas custam ~20-30 ciclos, sem
+    // passar pela L1/L2 (onde cada escrita invalidava a linha na L1).
+    __shared__ float W1[64 * 32], b1[32];
+    __shared__ float W2[32 * 16], b2[16];
+    __shared__ float W3[16 * classes], b3[classes];
+    copia_bloco<T>(p.W1, W1, 64 * 32);
+    copia_bloco<T>(p.b1, b1, 32);
+    copia_bloco<T>(p.W2, W2, 32 * 16);
+    copia_bloco<T>(p.b2, b2, 16);
+    copia_bloco<T>(p.W3, W3, 16 * classes);
+    copia_bloco<T>(p.b3, b3, classes);
+    __syncthreads();
 
     for (int epoca = 0; epoca < epocas; ++epoca) {
         for (int k = 0; k < n; ++k) {
             const float* x = imagens + static_cast<size_t>(k) * entradas;
-            fase_forward<64, 32, false, T>(x, p.W1, p.b1, z1, a1);
+            fase_forward<64, 32, false, T>(x, W1, b1, z1, a1);
             __syncthreads();
-            fase_forward<32, 16, false, T>(a1, p.W2, p.b2, z2, a2);
+            fase_forward<32, 16, false, T>(a1, W2, b2, z2, a2);
             __syncthreads();
-            fase_forward<16, classes, true, T>(a2, p.W3, p.b3, z3, s);
+            fase_forward<16, classes, true, T>(a2, W3, b3, z3, s);
             __syncthreads();
             // Perda MSE/2 e delta da última camada (gradiente dos escores), na
             // ordem i = 0..9 como na CPU: uma thread.
@@ -126,18 +148,25 @@ k_treino(const float* __restrict__ imagens, const int* __restrict__ rotulos, int
             }
             __syncthreads();
             // Camada 3: gradiente da entrada antes de atualizar W3.
-            fase_grad_in<16, classes, T>(d3, p.W3, z2, d2);
+            fase_grad_in<16, classes, T>(d3, W3, z2, d2);
             __syncthreads();
             // W3 e o gradiente da camada 2 (que só lê W2) não conflitam.
-            fase_atualiza<16, classes, T>(d3, a2, p.W3, p.b3, lr);
-            fase_grad_in<32, 16, T>(d2, p.W2, z1, d1);
+            fase_atualiza<16, classes, T>(d3, a2, W3, b3, lr);
+            fase_grad_in<32, 16, T>(d2, W2, z1, d1);
             __syncthreads();
-            fase_atualiza<32, 16, T>(d2, a1, p.W2, p.b2, lr);
-            fase_atualiza<64, 32, T>(d1, x, p.W1, p.b1, lr);
+            fase_atualiza<32, 16, T>(d2, a1, W2, b2, lr);
+            fase_atualiza<64, 32, T>(d1, x, W1, b1, lr);
             // Os pesos precisam estar atualizados antes do forward seguinte.
             __syncthreads();
         }
     }
+    // Parâmetros treinados de volta à memória global (para a cópia D2H).
+    copia_bloco<T>(W1, p.W1, 64 * 32);
+    copia_bloco<T>(b1, p.b1, 32);
+    copia_bloco<T>(W2, p.W2, 32 * 16);
+    copia_bloco<T>(b2, p.b2, 16);
+    copia_bloco<T>(W3, p.W3, 16 * classes);
+    copia_bloco<T>(b3, p.b3, classes);
 }
 
 // ---------------------------------------------------------------------------
