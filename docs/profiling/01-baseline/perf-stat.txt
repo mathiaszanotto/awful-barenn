@@ -1,0 +1,13 @@
+
+ Performance counter stats for './barenn' (5 runs):
+
+        4760034567      cycles:u                                                                ( +-  0.77% )
+       13998274356      instructions:u                   #    2.94  insn per cycle              ( +-  0.00% )
+        5207265805      L1-dcache-loads:u                                                       ( +-  0.00% )
+           3798993      L1-dcache-load-misses:u          #    0.07% of all L1-dcache accesses   ( +-  7.50% )
+           1308102      cache-references:u                                                      ( +-  1.39% )
+            370277      cache-misses:u                   #   28.31% of all cache refs           ( +-  6.38% )
+          20510912      branch-misses:u                                                         ( +-  0.50% )
+
+            1.1967 +- 0.0299 seconds time elapsed  ( +-  2.50% )
+
