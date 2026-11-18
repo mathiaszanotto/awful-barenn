@@ -79,23 +79,25 @@ public:
                              : grad_out[i] * (last_z[i] > 0.0f ? 1.0f : 0.0f);
         }
 
-        // O gradiente da entrada usa os pesos anteriores à atualização.
-        for (int i = 0; i < in_features; ++i) {
-            float sum = 0;
-            for (int j = 0; j < out_features; ++j) {
-                sum += delta[j] * weights[static_cast<size_t>(j) * in_features + i];
-            }
-            grad_in[i] = sum;
-        }
-
-        // SGD por amostra. O gradiente do peso é delta vezes a entrada.
-        // O gradiente do viés é o próprio delta.
+        // Um único passe, linha a linha, calcula o gradiente da entrada e
+        // atualiza os pesos (SGD por amostra).
+        //  - grad_in[j] = soma_i delta[i] * W[i][j]: cada grad_in[j] recebe as
+        //    parcelas na mesma ordem (i = 0, 1, ...) do laço por coluna do
+        //    legado, partindo de zero, então o resultado é o mesmo; mas agora a
+        //    matriz é lida com stride unitário.
+        //  - Cada peso é lido para grad_in antes de ser atualizado, então o
+        //    gradiente da entrada usa os pesos anteriores à atualização.
+        //  - O gradiente do peso é delta vezes a entrada; o do viés é o delta.
+        fill(grad_in.begin(), grad_in.end(), 0.0f);
+        float* gi = grad_in.data();
         for (int i = 0; i < out_features; ++i) {
             float* w = &weights[static_cast<size_t>(i) * in_features];
+            const float d = delta[i];
             for (int j = 0; j < in_features; ++j) {
-                w[j] -= learning_rate * (delta[i] * last_input[j]);
+                gi[j] += d * w[j];
+                w[j] -= learning_rate * (d * last_input[j]);
             }
-            bias[i] -= learning_rate * delta[i];
+            bias[i] -= learning_rate * d;
         }
         return grad_in;
     }
