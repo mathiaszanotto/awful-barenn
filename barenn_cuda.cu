@@ -76,23 +76,54 @@ constexpr int num_fases = 5;
 
 // Forward do neurônio i com a atualização pendente da sua coluna embutida.
 // Wt tem stride de linha LD; xp/dp são a entrada e o delta da amostra anterior.
+// __restrict__: pesos, viés, entradas e deltas são buffers distintos. Sem
+// isso, o compilador precisa supor que o store em Wt pode alterar x/xp e não
+// pode antecipar as cargas da iteração seguinte; com um único warp, sem
+// outros warps para esconder latência, cada iteração esperaria uma carga da
+// memória compartilhada. O laço é desenrolado por inteiro (IN constante):
+// as cargas e atualizações independentes se sobrepõem, e só as somas de acc
+// continuam encadeadas, na ordem j = 0, 1, ... da CPU.
 template <int IN, int OUT, int LD, bool FINAL>
 __device__ __forceinline__ float forward_neuronio(int i, bool pendente, float lr,
-                                                  float* Wt, float* b, const float* x,
-                                                  const float* xp, const float* dp) {
+                                                  float* __restrict__ Wt, float* __restrict__ b,
+                                                  const float* __restrict__ x,
+                                                  const float* __restrict__ xp,
+                                                  const float* __restrict__ dp) {
     float acc;
     if (pendente) {
         const float di = dp[i];
         const float bi = b[i] - lr * di;
         b[i] = bi;
         acc = bi;
-        for (int j = 0; j < IN; ++j) {
-            const float w = Wt[j * LD + i] - lr * (di * xp[j]);
-            Wt[j * LD + i] = w;
-            acc += x[j] * w;
+        // Blocos de B elementos: TODAS as cargas do bloco (pesos, x, xp) vão
+        // para registradores antes de qualquer store. O SASS mostrou que,
+        // sem isso, o compilador emitia a carga de xp[j+1] só depois do store
+        // de W[j] (não prova que não se sobrepõem, mesmo com __restrict__),
+        // e cada iteração pagava a latência inteira de uma carga.
+        constexpr int B = IN < 16 ? IN : 16;
+        static_assert(IN % B == 0, "IN deve ser múltiplo do bloco");
+#pragma unroll
+        for (int j0 = 0; j0 < IN; j0 += B) {
+            float w[B], xv[B], xpv[B];
+#pragma unroll
+            for (int u = 0; u < B; ++u) {
+                w[u] = Wt[(j0 + u) * LD + i];
+                xv[u] = x[j0 + u];
+                xpv[u] = xp[j0 + u];
+            }
+#pragma unroll
+            for (int u = 0; u < B; ++u) {
+                w[u] = w[u] - lr * (di * xpv[u]);
+            }
+#pragma unroll
+            for (int u = 0; u < B; ++u) {
+                Wt[(j0 + u) * LD + i] = w[u];
+                acc += xv[u] * w[u];
+            }
         }
     } else {
         acc = b[i];
+#pragma unroll
         for (int j = 0; j < IN; ++j) {
             acc += x[j] * Wt[j * LD + i];
         }
