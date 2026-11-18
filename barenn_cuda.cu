@@ -133,21 +133,43 @@ k_treino(const float* __restrict__ imagens, const int* __restrict__ rotulos, int
     __shared__ float W1[64 * 32], b1[32];
     __shared__ float W2[32 * 16], b2[16];
     __shared__ float W3[16 * classes], b3[classes];
+    // Buffer duplo da imagem e do rótulo: enquanto a amostra atual usa um
+    // lado, threads ociosas no forward 1 copiam a PRÓXIMA amostra para o
+    // outro, tirando a carga da memória global do caminho crítico.
+    __shared__ float xs[2][entradas];
+    __shared__ int rs[2];
     copia_bloco<T>(p.W1, W1, 64 * 32);
     copia_bloco<T>(p.b1, b1, 32);
     copia_bloco<T>(p.W2, W2, 32 * 16);
     copia_bloco<T>(p.b2, b2, 16);
     copia_bloco<T>(p.W3, W3, 16 * classes);
     copia_bloco<T>(p.b3, b3, classes);
+    copia_bloco<T>(imagens, xs[0], entradas);
+    if (threadIdx.x == 0) {
+        rs[0] = rotulos[0];
+    }
     __syncthreads();
 #ifdef PERFIL_FASES
     unsigned long long ciclos[num_fases] = {};
     long long marca = clock64();
 #endif
 
+    int atual = 0;
     for (int epoca = 0; epoca < epocas; ++epoca) {
         for (int k = 0; k < n; ++k) {
-            const float* x = imagens + static_cast<size_t>(k) * entradas;
+            const float* x = xs[atual];
+            // Prefetch da próxima amostra (k + 1, ou a primeira da próxima
+            // época) pelas threads 32..95, ociosas no forward 1. O outro lado
+            // do buffer foi usado pela amostra anterior, já encerrada pela
+            // última barreira; a cópia fica visível após a próxima barreira.
+            static_assert(T >= 96, "o prefetch usa as threads 32..95");
+            const int proxima = (k + 1 < n) ? k + 1 : 0;
+            if (threadIdx.x >= 32 && threadIdx.x < 32 + entradas) {
+                xs[atual ^ 1][threadIdx.x - 32] =
+                    imagens[static_cast<size_t>(proxima) * entradas + threadIdx.x - 32];
+            } else if (threadIdx.x == 32 + entradas) {
+                rs[atual ^ 1] = rotulos[proxima];
+            }
             fase_forward<64, 32, false, T>(x, W1, b1, z1, a1);
             __syncthreads();
             MARCA_FASE(0)
@@ -160,7 +182,7 @@ k_treino(const float* __restrict__ imagens, const int* __restrict__ rotulos, int
             // Perda MSE/2 e delta da última camada (gradiente dos escores), na
             // ordem i = 0..9 como na CPU: uma thread.
             if (threadIdx.x == 0) {
-                const int rotulo = rotulos[k];
+                const int rotulo = rs[atual];
                 float total = 0;
                 for (int i = 0; i < classes; ++i) {
                     const float erro = s[i] - (i == rotulo ? 1.0f : 0.0f);
@@ -185,6 +207,7 @@ k_treino(const float* __restrict__ imagens, const int* __restrict__ rotulos, int
             // Os pesos precisam estar atualizados antes do forward seguinte.
             __syncthreads();
             MARCA_FASE(6)
+            atual ^= 1;
         }
     }
 #ifdef PERFIL_FASES
