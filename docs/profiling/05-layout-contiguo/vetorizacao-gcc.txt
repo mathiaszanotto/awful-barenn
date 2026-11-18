@@ -1,0 +1,42 @@
+barenn.cpp:60:27: missed: couldn't vectorize loop
+barenn.cpp:60:27: missed: not vectorized: control flow in loop.
+barenn.cpp:63:31: missed: couldn't vectorize loop
+barenn.cpp:64:33: missed: not vectorized: no vectype for stmt: _288 = *_287;
+barenn.cpp:60:27: missed: couldn't vectorize loop
+barenn.cpp:60:27: missed: not vectorized: control flow in loop.
+barenn.cpp:63:31: missed: couldn't vectorize loop
+barenn.cpp:64:33: missed: not vectorized: no vectype for stmt: _324 = *_323;
+barenn.cpp:60:27: missed: couldn't vectorize loop
+barenn.cpp:60:27: missed: not vectorized: control flow in loop.
+barenn.cpp:63:31: missed: couldn't vectorize loop
+barenn.cpp:64:33: missed: not vectorized: no vectype for stmt: _360 = *_359;
+barenn.cpp:98:27: missed: couldn't vectorize loop
+barenn.cpp:98:27: missed: not vectorized: control flow in loop.
+barenn.cpp:107:35: missed: couldn't vectorize loop
+barenn.cpp:108:24: missed: not vectorized: no vectype for stmt: _315 = *_314;
+barenn.cpp:80:27: missed: couldn't vectorize loop
+barenn.cpp:80:27: missed: not vectorized: control flow in loop.
+barenn.cpp:98:27: missed: couldn't vectorize loop
+barenn.cpp:98:27: missed: not vectorized: control flow in loop.
+barenn.cpp:102:35: missed: couldn't vectorize loop
+barenn.cpp:103:25: missed: not vectorized: no vectype for stmt: _376 = *_375;
+barenn.cpp:80:27: missed: couldn't vectorize loop
+barenn.cpp:80:27: missed: not vectorized: control flow in loop.
+barenn.cpp:98:27: missed: couldn't vectorize loop
+barenn.cpp:98:27: missed: not vectorized: control flow in loop.
+barenn.cpp:102:35: missed: couldn't vectorize loop
+barenn.cpp:103:25: missed: not vectorized: no vectype for stmt: _454 = *_453;
+barenn.cpp:80:27: missed: couldn't vectorize loop
+barenn.cpp:80:27: missed: not vectorized: control flow in loop.
+barenn.cpp:60:27: missed: couldn't vectorize loop
+barenn.cpp:60:27: missed: not vectorized: control flow in loop.
+barenn.cpp:63:31: missed: couldn't vectorize loop
+barenn.cpp:64:33: missed: not vectorized: no vectype for stmt: _519 = *_518;
+barenn.cpp:60:27: missed: couldn't vectorize loop
+barenn.cpp:60:27: missed: not vectorized: control flow in loop.
+barenn.cpp:63:31: missed: couldn't vectorize loop
+barenn.cpp:64:33: missed: not vectorized: no vectype for stmt: _555 = *_554;
+barenn.cpp:60:27: missed: couldn't vectorize loop
+barenn.cpp:60:27: missed: not vectorized: control flow in loop.
+barenn.cpp:63:31: missed: couldn't vectorize loop
+barenn.cpp:64:33: missed: not vectorized: no vectype for stmt: _591 = *_590;

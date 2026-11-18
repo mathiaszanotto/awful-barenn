@@ -1,0 +1,42 @@
+10,506,234,562 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                      file:function
+--------------------------------------------------------------------------------
+9,957,348,356 (94.78%)  barenn.cpp:main [/mnt/c/Users/mathi/Livros/7oSem/techacker/awful-barenn/barenn]
+   65,047,085 ( 0.62%)  ./stdlib/./stdlib/strtod_l.c:____strtof_l_internal [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   59,985,422 ( 0.57%)  ???:std::num_get<char, std::istreambuf_iterator<char, std::char_traits<char> > >::_M_extract_float(std::istreambuf_iterator<char, std::char_traits<char> >, std::istreambuf_iterator<char, std::char_traits<char> >, std::ios_base&, std::_Ios_Iostate&, std::string&) const [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   37,766,400 ( 0.36%)  ???:std::num_get<char, std::istreambuf_iterator<char, std::char_traits<char> > >::do_get(std::istreambuf_iterator<char, std::char_traits<char> >, std::istreambuf_iterator<char, std::char_traits<char> >, std::ios_base&, std::_Ios_Iostate&, float&) const [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   36,541,298 ( 0.35%)  ???:std::istream::sentry::sentry(std::istream&, bool) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   35,560,898 ( 0.34%)  /usr/include/c++/13/bits/stl_algobase.h:main
+   30,973,140 ( 0.29%)  barenn.cpp:Barenn::avaliar(Barenn::DenseLayer&, Barenn::DenseLayer&, Barenn::DenseLayer&, std::vector<Barenn::Amostra, std::allocator<Barenn::Amostra> > const&) [/mnt/c/Users/mathi/Livros/7oSem/techacker/awful-barenn/barenn]
+   21,842,554 ( 0.21%)  ./malloc/./malloc/malloc.c:_int_free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   19,498,490 ( 0.19%)  ???:0x0000000000147b90 [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   18,703,360 ( 0.18%)  ???:std::istream& std::istream::_M_extract<float>(float&) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   18,177,997 ( 0.17%)  ./malloc/./malloc/malloc.c:malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   12,948,480 ( 0.12%)  ???:std::basic_istream<char, std::char_traits<char> >& std::operator>><char, std::char_traits<char> >(std::basic_istream<char, std::char_traits<char> >&, char&) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   12,948,480 ( 0.12%)  ???:void std::__convert_to_v<float>(char const*, float&, std::_Ios_Iostate&, __locale_struct* const&) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   11,509,760 ( 0.11%)  ???:std::string::reserve(unsigned long) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   11,331,720 ( 0.11%)  ./malloc/./malloc/malloc.c:free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   11,207,681 ( 0.11%)  ./stdlib/./stdlib/strtod_l.c:str_to_mpn.isra.0 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   10,278,297 ( 0.10%)  ???:0x00000000001164e0 [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+    9,384,867 ( 0.09%)  ./stdlib/./stdlib/strtod_l.c:round_and_return [/usr/lib/x86_64-linux-gnu/libc.so.6]
+    9,351,680 ( 0.09%)  ???:std::string::_Rep::_M_clone(std::allocator<char> const&, unsigned long) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+    8,632,320 ( 0.08%)  ???:std::string::_Rep::_S_create(unsigned long, unsigned long, std::allocator<char> const&) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+    8,037,920 ( 0.08%)  ???:0x0000000000142070 [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+
+--------------------------------------------------------------------------------
+-- User-annotated source: barenn.cpp
+--------------------------------------------------------------------------------
+
+== Linhas de barenn.cpp com mais de 1% das instruções ==
+1,651,293,840 (15.72%)              for (int j = 0; j < in_features; ++j) {
+1,605,643,200 (15.28%)                  sum += input[j] * w[j];
+  549,433,914 ( 5.23%)                  for (int j = 0; j < in_features; ++j) {
+  524,087,424 ( 4.99%)                      gi[j] += d * w[j];
+  885,957,312 ( 8.43%)                      w[j] -= learning_rate * (d * last_input[j]);
+1,628,414,496 (15.50%)                  for (int j = 0; j < in_features; ++j) {
+2,795,132,928 (26.60%)                      w[j] -= learning_rate * (d * last_input[j]);
+  320,791,382 ( 3.05%)  => barenn.cpp:Barenn::ler_dados(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) (1x)
+  150,740,397 ( 1.43%)  => barenn.cpp:Barenn::ler_dados(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) (1x)
+10,031,631,114 (95.48%)  events annotated

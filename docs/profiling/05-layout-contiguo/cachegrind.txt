@@ -1,0 +1,13 @@
+I refs:        10,512,008,577
+I1  misses:           146,676
+LLi misses:             2,909
+I1  miss rate:           0.00%
+LLi miss rate:           0.00%
+D refs:         3,411,489,341  (2,613,944,804 rd   + 797,544,537 wr)
+D1  misses:           993,886  (      962,380 rd   +      31,506 wr)
+LLd misses:            36,117  (        7,848 rd   +      28,269 wr)
+D1  miss rate:            0.0% (          0.0%     +         0.0%  )
+LLd miss rate:            0.0% (          0.0%     +         0.0%  )
+LL refs:            1,140,562  (    1,109,056 rd   +      31,506 wr)
+LL misses:             39,026  (       10,757 rd   +      28,269 wr)
+LL miss rate:             0.0% (          0.0%     +         0.0%  )
