@@ -25,8 +25,9 @@ class DenseLayer {
     int in_features;
     int out_features;
     bool final;
-    // weights[i][j] liga a entrada j ao neurônio de saída i.
-    vector<vector<float>> weights;
+    // Matriz de pesos contígua em ordem de linha (row-major):
+    // weights[i * in_features + j] liga a entrada j ao neurônio de saída i.
+    vector<float> weights;
     vector<float> bias;
     // Dados do último forward usados para calcular os gradientes.
     // last_input aponta para a entrada do forward (a imagem da amostra ou o
@@ -41,16 +42,15 @@ class DenseLayer {
 public:
     DenseLayer(int input_size, int output_size, bool is_final = false)
         : in_features(input_size), out_features(output_size), final(is_final),
-          weights(output_size, vector<float>(input_size)), bias(output_size, 0),
+          weights(static_cast<size_t>(output_size) * input_size), bias(output_size, 0),
           last_z(output_size), out(output_size), delta(output_size),
           grad_in(input_size) {
         // A semente fixa torna a inicialização de cada camada reproduzível.
+        // A ordem de preenchimento (linha a linha) é a mesma do legado.
         mt19937 gen(1337);
         uniform_real_distribution<float> distribution(-0.05f, 0.05f);
-        for (auto& row : weights) {
-            for (float& weight : row) {
-                weight = distribution(gen);
-            }
+        for (float& weight : weights) {
+            weight = distribution(gen);
         }
     }
 
@@ -58,9 +58,10 @@ public:
         last_input = input.data();
         // Cada neurônio soma o viés aos produtos entre entradas e pesos.
         for (int i = 0; i < out_features; ++i) {
+            const float* w = &weights[static_cast<size_t>(i) * in_features];
             float sum = bias[i];
             for (int j = 0; j < in_features; ++j) {
-                sum += input[j] * weights[i][j];
+                sum += input[j] * w[j];
             }
             last_z[i] = sum;
             // As camadas ocultas usam ReLU. A última devolve escores lineares.
@@ -69,8 +70,11 @@ public:
         return out;
     }
 
+    // calcula_grad_in = false pula o gradiente da entrada. Use na primeira
+    // camada, cujo gradiente da entrada (em relação à imagem) não é usado.
     const vector<float>& Backward(const vector<float>& grad_out,
-                                  float learning_rate) {
+                                  float learning_rate,
+                                  bool calcula_grad_in = true) {
         // Delta é o gradiente da perda em relação à soma antes da ativação.
         // Na ReLU, o gradiente passa apenas quando essa soma é positiva.
         for (int i = 0; i < out_features; ++i) {
@@ -78,22 +82,33 @@ public:
                              : grad_out[i] * (last_z[i] > 0.0f ? 1.0f : 0.0f);
         }
 
-        // O gradiente da entrada usa os pesos anteriores à atualização.
-        for (int i = 0; i < in_features; ++i) {
-            float sum = 0;
-            for (int j = 0; j < out_features; ++j) {
-                sum += delta[j] * weights[j][i];
-            }
-            grad_in[i] = sum;
+        // Um único passe, linha a linha, calcula o gradiente da entrada e
+        // atualiza os pesos (SGD por amostra).
+        //  - grad_in[j] = soma_i delta[i] * W[i][j]: cada grad_in[j] recebe as
+        //    parcelas na mesma ordem (i = 0, 1, ...) do laço por coluna do
+        //    legado, partindo de zero, então o resultado é o mesmo; mas agora a
+        //    matriz é lida com stride unitário.
+        //  - Cada peso é lido para grad_in antes de ser atualizado, então o
+        //    gradiente da entrada usa os pesos anteriores à atualização.
+        //  - O gradiente do peso é delta vezes a entrada; o do viés é o delta.
+        if (calcula_grad_in) {
+            fill(grad_in.begin(), grad_in.end(), 0.0f);
         }
-
-        // SGD por amostra. O gradiente do peso é delta vezes a entrada.
-        // O gradiente do viés é o próprio delta.
+        float* gi = grad_in.data();
         for (int i = 0; i < out_features; ++i) {
-            for (int j = 0; j < in_features; ++j) {
-                weights[i][j] -= learning_rate * (delta[i] * last_input[j]);
+            float* w = &weights[static_cast<size_t>(i) * in_features];
+            const float d = delta[i];
+            if (calcula_grad_in) {
+                for (int j = 0; j < in_features; ++j) {
+                    gi[j] += d * w[j];
+                    w[j] -= learning_rate * (d * last_input[j]);
+                }
+            } else {
+                for (int j = 0; j < in_features; ++j) {
+                    w[j] -= learning_rate * (d * last_input[j]);
+                }
             }
-            bias[i] -= learning_rate * delta[i];
+            bias[i] -= learning_rate * d;
         }
         return grad_in;
     }
@@ -291,7 +306,8 @@ int main(int argc, char** argv) {
                 // Cada Backward também atualiza os parâmetros da sua camada.
                 const auto& grad3 = l3.Backward(gradiente, taxa);
                 const auto& grad2 = l2.Backward(grad3, taxa);
-                l1.Backward(grad2, taxa);
+                // O gradiente em relação à imagem não é usado: a camada 1 não o calcula.
+                l1.Backward(grad2, taxa, false);
             }
             perdas[epoca] = perda_total / treino.size();
         }
