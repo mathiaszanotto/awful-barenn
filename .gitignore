@@ -8,3 +8,5 @@ cachegrind.out
 *.ncu-rep
 *.sqlite
 __pycache__/
+make.log
+nsys/
