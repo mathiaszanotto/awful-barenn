@@ -101,7 +101,23 @@ struct ParametrosGPU {
     float* W1; float* b1;  // 64 -> 32
     float* W2; float* b2;  // 32 -> 16
     float* W3; float* b3;  // 16 -> 10
+    unsigned long long* perfil;  // ciclos por fase (só com -DPERFIL_FASES)
 };
+
+// Perfil por fase sem Nsight Compute (indisponível no cluster): a thread 0
+// lê o contador de ciclos do SM (clock64) logo após cada barreira e acumula
+// a duração de cada fase, que inclui a espera pela thread mais lenta.
+constexpr int num_fases = 7;
+#ifdef PERFIL_FASES
+#define MARCA_FASE(f)                                   \
+    if (threadIdx.x == 0) {                             \
+        const long long agora = clock64();              \
+        ciclos[f] += agora - marca;                     \
+        marca = agora;                                  \
+    }
+#else
+#define MARCA_FASE(f)
+#endif
 
 template <int T>
 __global__ void __launch_bounds__(T)
@@ -124,16 +140,23 @@ k_treino(const float* __restrict__ imagens, const int* __restrict__ rotulos, int
     copia_bloco<T>(p.W3, W3, 16 * classes);
     copia_bloco<T>(p.b3, b3, classes);
     __syncthreads();
+#ifdef PERFIL_FASES
+    unsigned long long ciclos[num_fases] = {};
+    long long marca = clock64();
+#endif
 
     for (int epoca = 0; epoca < epocas; ++epoca) {
         for (int k = 0; k < n; ++k) {
             const float* x = imagens + static_cast<size_t>(k) * entradas;
             fase_forward<64, 32, false, T>(x, W1, b1, z1, a1);
             __syncthreads();
+            MARCA_FASE(0)
             fase_forward<32, 16, false, T>(a1, W2, b2, z2, a2);
             __syncthreads();
+            MARCA_FASE(1)
             fase_forward<16, classes, true, T>(a2, W3, b3, z3, s);
             __syncthreads();
+            MARCA_FASE(2)
             // Perda MSE/2 e delta da última camada (gradiente dos escores), na
             // ordem i = 0..9 como na CPU: uma thread.
             if (threadIdx.x == 0) {
@@ -147,19 +170,30 @@ k_treino(const float* __restrict__ imagens, const int* __restrict__ rotulos, int
                 perdas[static_cast<size_t>(epoca) * n + k] = total;
             }
             __syncthreads();
+            MARCA_FASE(3)
             // Camada 3: gradiente da entrada antes de atualizar W3.
             fase_grad_in<16, classes, T>(d3, W3, z2, d2);
             __syncthreads();
+            MARCA_FASE(4)
             // W3 e o gradiente da camada 2 (que só lê W2) não conflitam.
             fase_atualiza<16, classes, T>(d3, a2, W3, b3, lr);
             fase_grad_in<32, 16, T>(d2, W2, z1, d1);
             __syncthreads();
+            MARCA_FASE(5)
             fase_atualiza<32, 16, T>(d2, a1, W2, b2, lr);
             fase_atualiza<64, 32, T>(d1, x, W1, b1, lr);
             // Os pesos precisam estar atualizados antes do forward seguinte.
             __syncthreads();
+            MARCA_FASE(6)
         }
     }
+#ifdef PERFIL_FASES
+    if (threadIdx.x == 0) {
+        for (int f = 0; f < num_fases; ++f) {
+            p.perfil[f] = ciclos[f];
+        }
+    }
+#endif
     // Parâmetros treinados de volta à memória global (para a cópia D2H).
     copia_bloco<T>(W1, p.W1, 64 * 32);
     copia_bloco<T>(b1, p.b1, 32);
@@ -211,6 +245,7 @@ struct CamadaGPU {
 struct Tempos {
     double h2d_ms = 0, kernels_ms = 0, d2h_ms = 0;
     long lancamentos = 0;
+    unsigned long long ciclos_fase[num_fases] = {};
 };
 
 // Treina as três camadas na GPU (SGD por amostra, kernel persistente) e
@@ -250,8 +285,10 @@ void treinar(Barenn::Camada1& l1, Barenn::Camada2& l2, Barenn::Camada3& l3,
     g3.enviar(l3);
     CUDA_CHECK(cudaEventRecord(ev[1]));
 
+    BufferGPU<unsigned long long> d_perfil(num_fases);
     // Um único lançamento: um bloco percorre todas as épocas e amostras.
-    const ParametrosGPU p{g1.W.get(), g1.b.get(), g2.W.get(), g2.b.get(), g3.W.get(), g3.b.get()};
+    const ParametrosGPU p{g1.W.get(), g1.b.get(), g2.W.get(), g2.b.get(),
+                          g3.W.get(), g3.b.get(), d_perfil.get()};
     k_treino<THREADS_TREINO><<<1, THREADS_TREINO>>>(d_imagens.get(), d_rotulos.get(), n,
                                                     static_cast<int>(EPOCAS), taxa, p,
                                                     d_perdas.get());
@@ -264,6 +301,9 @@ void treinar(Barenn::Camada1& l1, Barenn::Camada2& l2, Barenn::Camada3& l3,
     g1.receber(l1);
     g2.receber(l2);
     g3.receber(l3);
+#ifdef PERFIL_FASES
+    d_perfil.receber(tempos.ciclos_fase);
+#endif
     CUDA_CHECK(cudaEventRecord(ev[3]));
     CUDA_CHECK(cudaEventSynchronize(ev[3]));
 
@@ -352,6 +392,24 @@ int main(int argc, char** argv) {
              << " | threads " << THREADS_TREINO << " | " << setprecision(3)
              << 1000.0 * tempos.kernels_ms / (static_cast<double>(epocas) * treino.size())
              << " us/amostra\n";
+#ifdef PERFIL_FASES
+        // Perfil por fase (clock64 da thread 0), em ciclos por amostra.
+        const char* nomes[BarennGPU::num_fases] = {
+            "forward 1 (64->32)", "forward 2 (32->16)", "forward 3 (16->10)", "perda + delta 3",
+            "grad_in 3 + delta 2", "atualiza W3 + grad_in 2", "atualiza W2 + W1"};
+        double total = 0;
+        for (auto c : tempos.ciclos_fase) {
+            total += static_cast<double>(c);
+        }
+        const double amostras = static_cast<double>(epocas) * treino.size();
+        cerr << "[perfil] " << setprecision(0) << total / amostras << " ciclos/amostra | clock efetivo "
+             << setprecision(3) << total / (tempos.kernels_ms * 1e6) << " GHz\n";
+        for (int f = 0; f < BarennGPU::num_fases; ++f) {
+            cerr << "[perfil] " << left << setw(26) << nomes[f] << right << setw(8) << setprecision(0)
+                 << tempos.ciclos_fase[f] / amostras << " ciclos/amostra (" << setprecision(1)
+                 << 100.0 * tempos.ciclos_fase[f] / total << " %)\n";
+        }
+#endif
     } catch (const exception& erro) {
         cerr << "Erro: " << erro.what() << "\n";
         return 1;
