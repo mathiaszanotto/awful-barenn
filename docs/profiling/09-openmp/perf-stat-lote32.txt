@@ -1,0 +1,10 @@
+== perf stat --lote 32, 1 threads
+            185.77 msec task-clock:u                     #    0.970 CPUs utilized               ( +-  2.09% )
+         683304517      cycles:u                         #    3.678 GHz                         ( +-  1.05% )
+        1555278625      instructions:u                   #    2.28  insn per cycle              ( +-  0.00% )
+           0.19144 +- 0.00436 seconds time elapsed  ( +-  2.28% )
+== perf stat --lote 32, 4 threads
+            324.39 msec task-clock:u                     #    3.240 CPUs utilized               ( +-  7.56% )
+        1184501035      cycles:u                         #    3.651 GHz                         ( +-  7.89% )
+        1570361891      instructions:u                   #    1.33  insn per cycle              ( +-  0.16% )
+           0.10012 +- 0.00589 seconds time elapsed  ( +-  5.88% )

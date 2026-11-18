@@ -1,0 +1,30 @@
+# Escalabilidade (10 execucoes cada, treino = cronometro interno)
+== padrao (SGD por amostra, serial)
+treino : media 0.1625 s | desvio 0.0058 s | min 0.1551 s | mediana 0.1617 s
+parede : media 0.1900 s | desvio 0.0055 s | min 0.1841 s | mediana 0.1884 s
+leitura: media 0.0207 s | desvio 0.0007 s | min 0.0193 s
+corretude: IDENTICA — saída idêntica à referência (exceto a linha de tempo)
+== --lote 8, OMP_NUM_THREADS=1
+treino : media 0.1651 s | desvio 0.0095 s | min 0.1536 s | mediana 0.1628 s
+corretude: DIVERGENTE — max |Δperda treino| = 0.0018; acertos 1735 vs 1717 (Δ=18); |Δperda teste| = 0.0045
+== --lote 8, OMP_NUM_THREADS=2
+treino : media 0.1357 s | desvio 0.0103 s | min 0.1254 s | mediana 0.1351 s
+corretude: DIVERGENTE — max |Δperda treino| = 0.0018; acertos 1735 vs 1717 (Δ=18); |Δperda teste| = 0.0045
+== --lote 8, OMP_NUM_THREADS=4
+treino : media 0.1080 s | desvio 0.0053 s | min 0.1006 s | mediana 0.1064 s
+corretude: DIVERGENTE — max |Δperda treino| = 0.0018; acertos 1735 vs 1717 (Δ=18); |Δperda teste| = 0.0045
+== --lote 8, OMP_NUM_THREADS=8
+treino : media 0.1520 s | desvio 0.0463 s | min 0.0929 s | mediana 0.1502 s
+corretude: DIVERGENTE — max |Δperda treino| = 0.0018; acertos 1735 vs 1717 (Δ=18); |Δperda teste| = 0.0045
+== --lote 32, OMP_NUM_THREADS=1
+treino : media 0.1513 s | desvio 0.0042 s | min 0.1441 s | mediana 0.1530 s
+corretude: DIVERGENTE — max |Δperda treino| = 0.0173; acertos 1735 vs 1717 (Δ=18); |Δperda teste| = 0.0064
+== --lote 32, OMP_NUM_THREADS=2
+treino : media 0.0947 s | desvio 0.0047 s | min 0.0895 s | mediana 0.0937 s
+corretude: DIVERGENTE — max |Δperda treino| = 0.0173; acertos 1735 vs 1717 (Δ=18); |Δperda teste| = 0.0064
+== --lote 32, OMP_NUM_THREADS=4
+treino : media 0.0792 s | desvio 0.0070 s | min 0.0696 s | mediana 0.0820 s
+corretude: DIVERGENTE — max |Δperda treino| = 0.0173; acertos 1735 vs 1717 (Δ=18); |Δperda teste| = 0.0064
+== --lote 32, OMP_NUM_THREADS=8
+treino : media 0.1283 s | desvio 0.0319 s | min 0.0788 s | mediana 0.1351 s
+corretude: DIVERGENTE — max |Δperda treino| = 0.0173; acertos 1735 vs 1717 (Δ=18); |Δperda teste| = 0.0064

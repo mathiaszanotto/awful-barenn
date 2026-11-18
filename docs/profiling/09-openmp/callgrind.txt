@@ -1,0 +1,31 @@
+1,835,892,306 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                      file:function
+--------------------------------------------------------------------------------
+1,728,912,216 (94.17%)  barenn.cpp:main [/mnt/c/Users/mathi/Livros/7oSem/techacker/awful-barenn/barenn]
+   46,754,621 ( 2.55%)  ???:std::from_chars(char const*, char const*, float&, std::chars_format) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   16,764,460 ( 0.91%)  barenn.cpp:Barenn::interpretar_linha(char const*, char const*, Barenn::Amostra&) [/mnt/c/Users/mathi/Livros/7oSem/techacker/awful-barenn/barenn]
+    7,994,406 ( 0.44%)  /usr/include/c++/13/bits/stl_algobase.h:main
+    6,447,979 ( 0.35%)  barenn.cpp:Barenn::avaliar(Barenn::DenseLayer<64, 32, false>&, Barenn::DenseLayer<32, 16, false>&, Barenn::DenseLayer<16, 10, true>&, std::vector<Barenn::Amostra, std::allocator<Barenn::Amostra> > const&) [/mnt/c/Users/mathi/Livros/7oSem/techacker/awful-barenn/barenn]
+    5,799,318 ( 0.32%)  /usr/include/c++/13/streambuf:Barenn::ler_dados(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)
+    5,074,860 ( 0.28%)  ./ctype/./ctype/ctype.c:isspace [/usr/lib/x86_64-linux-gnu/libc.so.6]
+
+--------------------------------------------------------------------------------
+-- Auto-annotated source: /usr/include/c++/13/bits/stl_algobase.h
+
+== Linhas de barenn.cpp com mais de 1% das instruções ==
+ 45,851,004 ( 2.50%)      for (int j = 0; j < IN; ++j) {
+ 24,262,908 ( 1.32%)          for (int i = 0; i < OUT; ++i) {
+567,772,200 (30.93%)              acc[i] += xj * w[i];
+ 66,485,793 ( 3.62%)      for (int j = 0; j < IN; ++j) {
+362,649,780 (19.75%)                  sum += delta[i] * w[i];
+485,482,770 (26.44%)              w[i] -= learning_rate * (delta[i] * xj);
+ 18,912,381 ( 1.03%)          for (int i = 0; i < OUT; ++i) {
+ 43,467,046 ( 2.37%)              delta[i] = FINAL ? grad_out[i]
+ 37,629,789 ( 2.05%)                               : grad_out[i] * (last_z[i] > 0.0f ? 1.0f : 0.0f);
+ 47,473,981 ( 2.59%)  => ???:0x000000000010b4f0 (359,680x)
+ 73,038,539 ( 3.98%)  => barenn.cpp:Barenn::interpretar_linha(char const*, char const*, Barenn::Amostra&) (5,620x)
+ 60,115,181 ( 3.27%)  => barenn.cpp:Barenn::ler_dados(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) (1x)
+ 28,267,686 ( 1.54%)  => barenn.cpp:Barenn::ler_dados(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) (1x)
+1,766,162,939 (96.20%)  events annotated
