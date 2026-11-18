@@ -1,0 +1,44 @@
+13,445,106,007 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                      file:function
+--------------------------------------------------------------------------------
+9,496,235,773 (70.63%)  barenn.cpp:Barenn::DenseLayer::Backward(std::vector<float, std::allocator<float> > const&, float) [clone .isra.0] [/mnt/c/Users/mathi/Livros/7oSem/techacker/awful-barenn/barenn]
+3,339,694,215 (24.84%)  barenn.cpp:main [/mnt/c/Users/mathi/Livros/7oSem/techacker/awful-barenn/barenn]
+   65,047,085 ( 0.48%)  ./stdlib/./stdlib/strtod_l.c:____strtof_l_internal [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   59,985,422 ( 0.45%)  ???:std::num_get<char, std::istreambuf_iterator<char, std::char_traits<char> > >::_M_extract_float(std::istreambuf_iterator<char, std::char_traits<char> >, std::istreambuf_iterator<char, std::char_traits<char> >, std::ios_base&, std::_Ios_Iostate&, std::string&) const [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   50,498,007 ( 0.38%)  /usr/include/c++/13/bits/stl_vector.h:Barenn::DenseLayer::Backward(std::vector<float, std::allocator<float> > const&, float) [clone .isra.0]
+   37,766,400 ( 0.28%)  ???:std::num_get<char, std::istreambuf_iterator<char, std::char_traits<char> > >::do_get(std::istreambuf_iterator<char, std::char_traits<char> >, std::istreambuf_iterator<char, std::char_traits<char> >, std::ios_base&, std::_Ios_Iostate&, float&) const [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   36,541,298 ( 0.27%)  ???:std::istream::sentry::sentry(std::istream&, bool) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   30,770,084 ( 0.23%)  barenn.cpp:Barenn::avaliar(Barenn::DenseLayer&, Barenn::DenseLayer&, Barenn::DenseLayer&, std::vector<Barenn::Amostra, std::allocator<Barenn::Amostra> > const&) [/mnt/c/Users/mathi/Livros/7oSem/techacker/awful-barenn/barenn]
+   27,101,362 ( 0.20%)  /usr/include/c++/13/bits/stl_vector.h:main
+   24,837,536 ( 0.18%)  /usr/include/c++/13/bits/stl_algobase.h:main
+   21,845,965 ( 0.16%)  ./malloc/./malloc/malloc.c:_int_free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   19,498,490 ( 0.15%)  ???:0x0000000000147b90 [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   18,703,360 ( 0.14%)  ???:std::istream& std::istream::_M_extract<float>(float&) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   18,180,748 ( 0.14%)  ./malloc/./malloc/malloc.c:malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   12,948,480 ( 0.10%)  ???:std::basic_istream<char, std::char_traits<char> >& std::operator>><char, std::char_traits<char> >(std::basic_istream<char, std::char_traits<char> >&, char&) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   12,948,480 ( 0.10%)  ???:void std::__convert_to_v<float>(char const*, float&, std::_Ios_Iostate&, __locale_struct* const&) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   11,509,760 ( 0.09%)  ???:std::string::reserve(unsigned long) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   11,333,428 ( 0.08%)  ./malloc/./malloc/malloc.c:free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   11,207,681 ( 0.08%)  ./stdlib/./stdlib/strtod_l.c:str_to_mpn.isra.0 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   10,278,297 ( 0.08%)  ???:0x00000000001164e0 [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+
+--------------------------------------------------------------------------------
+-- User-annotated source: barenn.cpp
+--------------------------------------------------------------------------------
+Ir                     
+
+== Linhas de barenn.cpp com mais de 1% das instruções ==
+1,631,219,706 (12.13%)              for (int j = 0; j < in_features; ++j) {
+1,605,643,200 (11.94%)                  sum += input[j] * weights[i][j];
+2,211,578,739 (16.45%)              for (int j = 0; j < out_features; ++j) {
+2,121,306,240 (15.78%)                  sum += delta[j] * weights[j][i];
+1,613,596,548 (12.00%)              for (int j = 0; j < in_features; ++j) {
+3,193,267,794 (23.75%)                  weights[i][j] -= learning_rate * (delta[i] * last_input[j]);
+  320,791,382 ( 2.39%)  => barenn.cpp:Barenn::ler_dados(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) (1x)
+  150,740,397 ( 1.12%)  => barenn.cpp:Barenn::ler_dados(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) (1x)
+  616,309,653 ( 4.58%)  => barenn.cpp:Barenn::DenseLayer::Backward(std::vector<float, std::allocator<float> > const&, float) [clone .isra.0] (194,973x)
+1,848,326,764 (13.75%)  => barenn.cpp:Barenn::DenseLayer::Backward(std::vector<float, std::allocator<float> > const&, float) [clone .isra.0] (194,973x)
+7,082,097,363 (52.67%)  => barenn.cpp:Barenn::DenseLayer::Backward(std::vector<float, std::allocator<float> > const&, float) [clone .isra.0] (194,973x)
+12,978,010,039 (96.53%)  events annotated
