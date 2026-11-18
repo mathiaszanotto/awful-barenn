@@ -1,3 +1,62 @@
+# Barenn: relatório de otimização e migração para CUDA (APS2)
+
+> **Sumário executivo.** O treino da rede 64 → 32 → 16 → 10 (SGD por amostra, 51 épocas, 3 823 imagens) caiu de **0,431 s** (legado) para **0,110 s na CPU (3,9×)** e **0,281 s na GPU**, sempre com saída **bit a bit idêntica** à do código original. A versão CUDA final é **12,6× mais rápida que o port inicial** (3,53 s). Mesmo assim, para o algoritmo exato a CPU vence a GPU, porque o SGD por amostra é uma cadeia serial com poucas centenas de operações por passo (Lei de Amdahl). Um modo opcional de mini-lotes paralelos (`--lote 32`) leva a CPU a **0,047 s (9,2×)**, com acurácia de 96,5 % contra 95,5 %.
+
+## Tabela consolidada
+
+Todas as medições no mesmo nó do cluster **Franky** (compute20: Intel Core i9-14900 + NVIDIA RTX A1000, CUDA 12.8, g++ 14.2), tempo de treino medido pelo próprio programa (`scripts/franky_bench.sh`, 10 execuções, média ± desvio-padrão). "Corretude" compara a saída com a do legado (`tests/referencia_legado.txt`).
+
+| Versão | Tag | Execução | Treino | Speedup vs legado | Corretude |
+|:--|:--|:--|--:|--:|:--|
+| **Baseline legado** | [`v0.1-baseline`](../../tree/v0.1-baseline) | CPU, 1 núcleo, `-O2` | **0,431 ± 0,001 s** | 1,0× | referência |
+| sem alocações | [`v0.2-sem-alocacoes`](../../tree/v0.2-sem-alocacoes) | CPU, 1 núcleo | 0,410 ± 0,001 s | 1,05× | IDENTICA |
+| layout contíguo | [`v0.3-layout-contiguo`](../../tree/v0.3-layout-contiguo) | CPU, 1 núcleo | 0,337 ± 0,001 s | 1,28× | IDENTICA |
+| SIMD (AVX2) | [`v0.4-simd`](../../tree/v0.4-simd) | CPU, 1 núcleo, AVX2 | 0,111 ± 0,001 s | 3,9× | IDENTICA |
+| **CPU otimizada** | [`v0.5-openmp`](../../tree/v0.5-openmp) | CPU, 1 núcleo, AVX2 | **0,110 ± 0,001 s** | **3,9×** | **IDENTICA** |
+| CPU otimizada, `--lote 32` | [`v0.5-openmp`](../../tree/v0.5-openmp) | CPU, 8 threads OpenMP | 0,047 ± 0,000 s | 9,2× | outro algoritmo (mini-lotes); acurácia 96,5 % |
+| **CUDA inicial** | [`v1.0-cuda-inicial`](../../tree/v1.0-cuda-inicial) | GPU, 12 kernels/amostra | **3,530 ± 0,016 s** | 0,12× | **IDENTICA** |
+| kernel persistente | [`v1.1-cuda-persistente`](../../tree/v1.1-cuda-persistente) | GPU, 1 bloco × 512 threads | 0,4995 ± 0,0007 s | 0,86× | IDENTICA |
+| memória compartilhada | [`v1.2-cuda-shared`](../../tree/v1.2-cuda-shared) | GPU, 1 bloco × 512 threads | 0,4130 ± 0,0004 s | 1,04× | IDENTICA |
+| **CUDA otimizado** | [`v1.3-cuda-warp`](../../tree/v1.3-cuda-warp) | GPU, 1 warp | **0,281 ± 0,010 s** | **1,53×** | **IDENTICA** |
+
+Todas as tags foram recompiladas a partir de um clone limpo e revalidadas no mesmo nó: [`docs/reprodutibilidade.txt`](docs/reprodutibilidade.txt). Os blocos de CPU foram desenvolvidos num notebook (i5-1135G7, WSL2; ver [`docs/ambiente.md`](docs/ambiente.md)), cujas medições, com profiling detalhado, estão em cada issue.
+
+## Índice dos blocos lógicos (issue → PR → tag)
+
+| # | Bloco | Hipótese e técnica | Issue | PR | Tag |
+|--:|:--|:--|:--:|:--:|:--|
+| 1 | Baseline reprodutível | Makefile, benchmark com repetições, validação, perf/callgrind/cachegrind | [#1](../../issues/1) | [#2](../../pull/2) | [`v0.1-baseline`](../../tree/v0.1-baseline) |
+| 2 | Sem alocações por amostra | passagem por referência, buffers reutilizados | [#3](../../issues/3) | [#4](../../pull/4) | [`v0.2-sem-alocacoes`](../../tree/v0.2-sem-alocacoes) |
+| 3 | Layout contíguo | matriz row-major contígua, backward em um passe, remoção de trabalho morto | [#5](../../issues/5) | [#6](../../pull/6) | [`v0.3-layout-contiguo`](../../tree/v0.3-layout-contiguo) |
+| 4 | Vetorização SIMD | AVX2/AVX-512, dimensões em tempo de compilação, pesos transpostos (sem reassociação) | [#7](../../issues/7) | [#8](../../pull/8) | [`v0.4-simd`](../../tree/v0.4-simd) |
+| 5 | Paralelismo multicore | parser `from_chars`, OpenMP em mini-lotes determinísticos, experimentos negativos | [#9](../../issues/9) | [#10](../../pull/10) | [`v0.5-openmp`](../../tree/v0.5-openmp) |
+| 6 | Migração para CUDA | port funcional, memória no device, H2D/D2H, `--fmad=false` | [#11](../../issues/11) | [#12](../../pull/12) | [`v1.0-cuda-inicial`](../../tree/v1.0-cuda-inicial) |
+| 7 | Kernel persistente | fusão de 12 kernels em 1 lançamento, varredura de threads | [#13](../../issues/13) | [#14](../../pull/14) | [`v1.1-cuda-persistente`](../../tree/v1.1-cuda-persistente) |
+| 8 | Memória compartilhada | pesos em shared memory, prefetch em buffer duplo, perfil por fase com `clock64` | [#15](../../issues/15) | [#16](../../pull/16) | [`v1.2-cuda-shared`](../../tree/v1.2-cuda-shared) |
+| 9 | Kernel warp-síncrono | atualização adiada fundida ao forward, padding contra conflito de banco, ILP guiado por SASS | [#17](../../issues/17) | [#18](../../pull/18) | [`v1.3-cuda-warp`](../../tree/v1.3-cuda-warp) |
+
+## Principais conclusões
+
+- **Integridade numérica preservada em todo o caminho.** Nenhuma otimização mudou a ordem das operações em ponto flutuante: pesos transpostos em vez de somas reassociadas na CPU, `-ffp-contract=off` e `--fmad=false`, e a mesma ordem de soma por thread na GPU. Otimizações que mudavam o resultado (reassociação, FMA) foram medidas e descartadas (#7).
+- **CPU: limitada por instruções, não por memória.** Os pesos (11 KB) cabem no L1 (miss rate de 0,07 %). O ganho veio de reduzir instruções por MAC (de 8,8 para ≈ 1,4) com SIMD. O paralelismo multicore dentro do SGD por amostra **piora** o tempo de 4× a 14× (barreiras de ~1 µs contra ~1,5 µs de trabalho por amostra); só escala em mini-lotes (#9).
+- **GPU: limitada por latência e pela cadeia serial.** O port inicial passava 98 % do tempo lançando 2,34 M kernels de ~1 µs (#11). A fusão em um kernel persistente, a memória compartilhada, o prefetch e o kernel warp-síncrono levaram a 1 400 ns por amostra (#13–#17). O SGD exato usa 1 warp de 1 SM (≈ 0,1 % da GPU). O PCIe é irrelevante: 1,8 MB transferidos em 0,3 ms. A criação do contexto CUDA (1,6 s) custa mais que o treino inteiro.
+- **Ferramentas:** perf, callgrind, cachegrind e relatórios de vetorização do gcc na CPU; Nsight Systems, `ptxas -v`, SASS (`cuobjdump`) e instrumentação com `clock64` na GPU. O Nsight Compute não pôde ser usado: os contadores de GPU do cluster são restritos ao administrador (`ERR_NVGPUCTRPERM`), conforme documentado em #11.
+
+## Como reproduzir
+
+```bash
+git checkout <tag>
+make                 # versão de CPU (padrão: -O3 -march=x86-64-v3 -ffp-contract=off -fopenmp)
+make bench           # 10 execuções + validação contra a saída do legado
+make cuda            # versão CUDA (a partir de v1.0; nvcc -arch=sm_86 --fmad=false)
+scripts/franky_bench.sh             # no head-node do Franky: CPU e GPU no mesmo nó (srun)
+scripts/franky_nsys.sh <nome>       # perfil Nsight Systems
+scripts/test_parser.sh ./barenn     # parser equivalente ao legado (a partir de v0.5)
+scripts/test_lote.sh ./barenn       # modo --lote: identidade com lote 1 e determinismo
+```
+
+---
+
 # Projeto Barenn: O Legado, a Sobrevivência e o Salto para a GPU
 
 Era uma segunda-feira aparentemente tranquila quando a demanda chegou à sua mesa. A liderança técnica se aproximou com um sorriso contido e soltou aquela frase clássica que faz qualquer engenheiro gelar por dentro:
