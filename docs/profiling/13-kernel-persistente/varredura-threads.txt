@@ -1,0 +1,13 @@
+# Kernel persistente k_treino<T>: 1 bloco de T threads, 1 lançamento.
+# Franky compute20/21, RTX A1000, nvcc -O3 -arch=sm_86 --fmad=false -DTHREADS_TREINO=T
+# scripts/bench.py --runs 3 (T=512: --runs 10)
+| T (threads) | treino (média ± dp) | us/amostra | corretude |
+|---:|---:|---:|:--|
+|   32 | 0,8523 ± 0,0002 s | 4,376 | IDENTICA |
+|   64 | 0,6855 ± 0,0002 s | 3,516 | IDENTICA |
+|  128 | 0,6014 ± 0,0003 s | 3,087 | IDENTICA |
+|  256 | 0,5672 ± 0,0009 s | 2,914 | IDENTICA |
+|  512 | 0,4995 ± 0,0007 s | 2,561 | IDENTICA |
+| 1024 | 0,5952 ± 0,0184 s | 2,998 | IDENTICA |
+
+ptxas (T=512): 128 registradores/thread, 0 spill, 656 bytes de smem, 1 barreira.

@@ -27,81 +27,116 @@ using Barenn::classes;
 using Barenn::entradas;
 
 // ---------------------------------------------------------------------------
-// Kernels: uma thread por neurônio (forward/delta), por entrada (grad_in) ou
-// por peso (atualização). Os pesos usam o mesmo layout transposto da CPU,
-// Wt[j * OUT + i]; no forward, threads consecutivas (neurônios i
-// consecutivos) leem endereços consecutivos: acesso coalescido.
+// Kernel persistente: UM lançamento executa todas as épocas e amostras.
+//
+// O SGD por amostra é sequencial (a amostra n+1 usa os pesos atualizados pela
+// n), então um único bloco de T threads percorre as amostras em ordem. As
+// etapas de cada amostra são fases separadas por __syncthreads(), uma barreira
+// de bloco de dezenas de ciclos, no lugar de ~1,5 us por lançamento de kernel.
+// Ativações e deltas ficam em memória compartilhada; os pesos ficam em memória
+// global (Wt[j * OUT + i], o layout transposto da CPU).
+//
+// Cada elemento é calculado por uma única thread, com a mesma ordem de soma e
+// as mesmas expressões da CPU: a saída é idêntica ao legado (--fmad=false).
 // ---------------------------------------------------------------------------
 
-template <int IN, int OUT, bool FINAL>
-__global__ void k_forward(const float* __restrict__ x, const float* __restrict__ Wt,
-                          const float* __restrict__ b, float* __restrict__ z,
-                          float* __restrict__ y) {
-    const int i = threadIdx.x;
-    if (i >= OUT) {
-        return;
-    }
-    // Viés, depois x[0]*w, x[1]*w, ...: a mesma ordem da CPU.
-    float acc = b[i];
-    for (int j = 0; j < IN; ++j) {
-        acc += x[j] * Wt[j * OUT + i];
-    }
-    z[i] = acc;
-    // Mesma expressão de std::max(0.0f, acc) para preservar o sinal de zero.
-    y[i] = FINAL ? acc : (0.0f < acc ? acc : 0.0f);
-}
+#ifndef THREADS_TREINO
+#define THREADS_TREINO 512  // melhor valor medido entre 32 e 1024 (issue #13)
+#endif
 
-// Perda MSE/2 da amostra k e gradiente em relação aos escores (1 thread).
-__global__ void k_perda(const float* __restrict__ escores, const int* __restrict__ rotulos,
-                        int k, float* __restrict__ gradiente, float* __restrict__ perda) {
-    const int rotulo = rotulos[k];
-    float total = 0;
-    for (int i = 0; i < classes; ++i) {
-        const float erro = escores[i] - (i == rotulo ? 1.0f : 0.0f);
-        total += 0.5f * erro * erro;
-        gradiente[i] = erro;
-    }
-    *perda = total;
-}
-
-template <int OUT, bool FINAL>
-__global__ void k_delta(const float* __restrict__ grad_out, const float* __restrict__ z,
-                        float* __restrict__ d) {
-    const int i = threadIdx.x;
-    if (i < OUT) {
-        d[i] = FINAL ? grad_out[i] : grad_out[i] * (z[i] > 0.0f ? 1.0f : 0.0f);
+// y[i] = ativação(b[i] + soma_j x[j] * W[i][j]), uma thread por neurônio i.
+// Threads consecutivas leem Wt[j * OUT + i] consecutivos (coalescido).
+template <int IN, int OUT, bool FINAL, int T>
+__device__ __forceinline__ void fase_forward(const float* x, const float* Wt, const float* b,
+                                             float* z, float* y) {
+    for (int i = threadIdx.x; i < OUT; i += T) {
+        float acc = b[i];
+        for (int j = 0; j < IN; ++j) {
+            acc += x[j] * Wt[j * OUT + i];
+        }
+        z[i] = acc;
+        // Mesma expressão de std::max(0.0f, acc) para preservar o sinal de zero.
+        y[i] = FINAL ? acc : (0.0f < acc ? acc : 0.0f);
     }
 }
 
-// Gradiente da entrada com os pesos ANTES da atualização (o kernel de
-// atualização é lançado depois, na mesma stream).
-template <int IN, int OUT>
-__global__ void k_grad_in(const float* __restrict__ d, const float* __restrict__ Wt,
-                          float* __restrict__ gi) {
-    const int j = threadIdx.x;
-    if (j >= IN) {
-        return;
+// Gradiente da entrada (pesos ainda NÃO atualizados) e, em seguida, o delta
+// da camada anterior: d_ant[j] = (soma_i d[i] * W[i][j]) * relu'(z_ant[j]).
+template <int IN, int OUT, int T>
+__device__ __forceinline__ void fase_grad_in(const float* d, const float* Wt,
+                                             const float* z_ant, float* d_ant) {
+    for (int j = threadIdx.x; j < IN; j += T) {
+        float sum = 0.0f;
+        for (int i = 0; i < OUT; ++i) {
+            sum += d[i] * Wt[j * OUT + i];
+        }
+        d_ant[j] = sum * (z_ant[j] > 0.0f ? 1.0f : 0.0f);
     }
-    float sum = 0.0f;
-    for (int i = 0; i < OUT; ++i) {
-        sum += d[i] * Wt[j * OUT + i];
-    }
-    gi[j] = sum;
 }
 
-// SGD: W[i][j] -= lr * (delta[i] * x[j]); b[i] -= lr * delta[i].
-template <int IN, int OUT>
-__global__ void k_atualiza(const float* __restrict__ d, const float* __restrict__ x,
-                           float* __restrict__ Wt, float* __restrict__ b, float lr) {
-    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= IN * OUT) {
-        return;
+// SGD: W[i][j] -= lr * (d[i] * x[j]); b[i] -= lr * d[i]. Threads consecutivas
+// atualizam pesos consecutivos (coalescido).
+template <int IN, int OUT, int T>
+__device__ __forceinline__ void fase_atualiza(const float* d, const float* x, float* Wt,
+                                              float* b, float lr) {
+    for (int idx = threadIdx.x; idx < IN * OUT; idx += T) {
+        const int j = idx / OUT;
+        const int i = idx - j * OUT;
+        Wt[idx] -= lr * (d[i] * x[j]);
     }
-    const int j = idx / OUT;
-    const int i = idx % OUT;
-    Wt[idx] -= lr * (d[i] * x[j]);
-    if (j == 0) {
+    for (int i = threadIdx.x; i < OUT; i += T) {
         b[i] -= lr * d[i];
+    }
+}
+
+struct ParametrosGPU {
+    float* W1; float* b1;  // 64 -> 32
+    float* W2; float* b2;  // 32 -> 16
+    float* W3; float* b3;  // 16 -> 10
+};
+
+template <int T>
+__global__ void __launch_bounds__(T)
+k_treino(const float* __restrict__ imagens, const int* __restrict__ rotulos, int n,
+         int epocas, float lr, ParametrosGPU p, float* __restrict__ perdas) {
+    __shared__ float z1[32], a1[32], d1[32];
+    __shared__ float z2[16], a2[16], d2[16];
+    __shared__ float z3[classes], s[classes], d3[classes];
+
+    for (int epoca = 0; epoca < epocas; ++epoca) {
+        for (int k = 0; k < n; ++k) {
+            const float* x = imagens + static_cast<size_t>(k) * entradas;
+            fase_forward<64, 32, false, T>(x, p.W1, p.b1, z1, a1);
+            __syncthreads();
+            fase_forward<32, 16, false, T>(a1, p.W2, p.b2, z2, a2);
+            __syncthreads();
+            fase_forward<16, classes, true, T>(a2, p.W3, p.b3, z3, s);
+            __syncthreads();
+            // Perda MSE/2 e delta da última camada (gradiente dos escores), na
+            // ordem i = 0..9 como na CPU: uma thread.
+            if (threadIdx.x == 0) {
+                const int rotulo = rotulos[k];
+                float total = 0;
+                for (int i = 0; i < classes; ++i) {
+                    const float erro = s[i] - (i == rotulo ? 1.0f : 0.0f);
+                    total += 0.5f * erro * erro;
+                    d3[i] = erro;
+                }
+                perdas[static_cast<size_t>(epoca) * n + k] = total;
+            }
+            __syncthreads();
+            // Camada 3: gradiente da entrada antes de atualizar W3.
+            fase_grad_in<16, classes, T>(d3, p.W3, z2, d2);
+            __syncthreads();
+            // W3 e o gradiente da camada 2 (que só lê W2) não conflitam.
+            fase_atualiza<16, classes, T>(d3, a2, p.W3, p.b3, lr);
+            fase_grad_in<32, 16, T>(d2, p.W2, z1, d1);
+            __syncthreads();
+            fase_atualiza<32, 16, T>(d2, a1, p.W2, p.b2, lr);
+            fase_atualiza<64, 32, T>(d1, x, p.W1, p.b1, lr);
+            // Os pesos precisam estar atualizados antes do forward seguinte.
+            __syncthreads();
+        }
     }
 }
 
@@ -133,10 +168,6 @@ struct CamadaGPU {
     static constexpr int OUT = Camada::saidas_camada;
     BufferGPU<float> W{static_cast<size_t>(IN) * OUT};
     BufferGPU<float> b{static_cast<size_t>(OUT)};
-    BufferGPU<float> z{static_cast<size_t>(OUT)};      // soma antes da ativação
-    BufferGPU<float> y{static_cast<size_t>(OUT)};      // saída
-    BufferGPU<float> d{static_cast<size_t>(OUT)};      // delta
-    BufferGPU<float> gi{static_cast<size_t>(IN)};      // gradiente da entrada
 
     void enviar(const Camada& c) {
         W.enviar(c.pesos());
@@ -153,7 +184,7 @@ struct Tempos {
     long lancamentos = 0;
 };
 
-// Treina as três camadas na GPU (SGD por amostra, 12 kernels por amostra) e
+// Treina as três camadas na GPU (SGD por amostra, kernel persistente) e
 // devolve os pesos treinados nas camadas do host. perdas[e] recebe a perda
 // média da época e, somada em double no host na ordem das amostras.
 template <size_t EPOCAS>
@@ -172,7 +203,6 @@ void treinar(Barenn::Camada1& l1, Barenn::Camada2& l2, Barenn::Camada3& l3,
     BufferGPU<float> d_imagens(imagens.size());
     BufferGPU<int> d_rotulos(rotulos.size());
     BufferGPU<float> d_perdas(EPOCAS * static_cast<size_t>(n));
-    BufferGPU<float> d_grad(classes);
     CamadaGPU<Barenn::Camada1> g1;
     CamadaGPU<Barenn::Camada2> g2;
     CamadaGPU<Barenn::Camada3> g3;
@@ -191,28 +221,11 @@ void treinar(Barenn::Camada1& l1, Barenn::Camada2& l2, Barenn::Camada3& l3,
     g3.enviar(l3);
     CUDA_CHECK(cudaEventRecord(ev[1]));
 
-    for (size_t epoca = 0; epoca < EPOCAS; ++epoca) {
-        for (int k = 0; k < n; ++k) {
-            const float* x = d_imagens.get() + static_cast<size_t>(k) * entradas;
-            // Forward
-            k_forward<64, 32, false><<<1, 32>>>(x, g1.W.get(), g1.b.get(), g1.z.get(), g1.y.get());
-            k_forward<32, 16, false><<<1, 32>>>(g1.y.get(), g2.W.get(), g2.b.get(), g2.z.get(), g2.y.get());
-            k_forward<16, 10, true><<<1, 32>>>(g2.y.get(), g3.W.get(), g3.b.get(), g3.z.get(), g3.y.get());
-            k_perda<<<1, 1>>>(g3.y.get(), d_rotulos.get(), k, d_grad.get(),
-                              d_perdas.get() + epoca * n + k);
-            // Camada 3
-            k_delta<10, true><<<1, 32>>>(d_grad.get(), g3.z.get(), g3.d.get());
-            k_grad_in<16, 10><<<1, 32>>>(g3.d.get(), g3.W.get(), g3.gi.get());
-            k_atualiza<16, 10><<<1, 160>>>(g3.d.get(), g2.y.get(), g3.W.get(), g3.b.get(), taxa);
-            // Camada 2
-            k_delta<16, false><<<1, 32>>>(g3.gi.get(), g2.z.get(), g2.d.get());
-            k_grad_in<32, 16><<<1, 32>>>(g2.d.get(), g2.W.get(), g2.gi.get());
-            k_atualiza<32, 16><<<2, 256>>>(g2.d.get(), g1.y.get(), g2.W.get(), g2.b.get(), taxa);
-            // Camada 1 (sem gradiente da entrada)
-            k_delta<32, false><<<1, 32>>>(g2.gi.get(), g1.z.get(), g1.d.get());
-            k_atualiza<64, 32><<<8, 256>>>(g1.d.get(), x, g1.W.get(), g1.b.get(), taxa);
-        }
-    }
+    // Um único lançamento: um bloco percorre todas as épocas e amostras.
+    const ParametrosGPU p{g1.W.get(), g1.b.get(), g2.W.get(), g2.b.get(), g3.W.get(), g3.b.get()};
+    k_treino<THREADS_TREINO><<<1, THREADS_TREINO>>>(d_imagens.get(), d_rotulos.get(), n,
+                                                    static_cast<int>(EPOCAS), taxa, p,
+                                                    d_perdas.get());
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaEventRecord(ev[2]));
 
@@ -240,7 +253,7 @@ void treinar(Barenn::Camada1& l1, Barenn::Camada2& l2, Barenn::Camada3& l3,
     tempos.kernels_ms = ms;
     CUDA_CHECK(cudaEventElapsedTime(&ms, ev[2], ev[3]));
     tempos.d2h_ms = ms;
-    tempos.lancamentos = 12L * n * static_cast<long>(EPOCAS);
+    tempos.lancamentos = 1;
     for (auto& e : ev) {
         cudaEventDestroy(e);
     }
@@ -307,8 +320,9 @@ int main(int argc, char** argv) {
              << prop.major << "." << prop.minor << ") | contexto " << tempo_contexto.count()
              << " s | H2D " << tempos.h2d_ms << " ms | kernels " << tempos.kernels_ms
              << " ms | D2H " << tempos.d2h_ms << " ms | lancamentos " << tempos.lancamentos
-             << " (" << setprecision(2) << 1000.0 * tempos.kernels_ms / tempos.lancamentos
-             << " us/lancamento)\n";
+             << " | threads " << THREADS_TREINO << " | " << setprecision(3)
+             << 1000.0 * tempos.kernels_ms / (static_cast<double>(epocas) * treino.size())
+             << " us/amostra\n";
     } catch (const exception& erro) {
         cerr << "Erro: " << erro.what() << "\n";
         return 1;
