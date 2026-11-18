@@ -1,0 +1,9 @@
+no: compute20 | Intel(R) Core(TM) i9-14900 | NVIDIA RTX A1000 (18 SMs, cc 8.6)
+== CPU (v0.5, padrao)
+treino : media 0.1103 s | desvio 0.0010 s | min 0.1088 s | mediana 0.1104 s
+corretude: IDENTICA — saída idêntica à referência (exceto a linha de tempo)
+== GPU (v1.1, kernel persistente, 512 threads)
+treino : media 0.4995 s | desvio 0.0007 s | min 0.4982 s | mediana 0.4998 s
+parede : media 2.6040 s | desvio 0.0074 s | min 2.5860 s | mediana 2.6058 s
+corretude: IDENTICA — saída idêntica à referência (exceto a linha de tempo)
+[gpu] NVIDIA RTX A1000 (18 SMs, cc 8.6) | contexto 1.6383 s | H2D 0.1454 ms | kernels 499.4038 ms | D2H 0.1440 ms | lancamentos 1 | threads 512 | 2.561 us/amostra
