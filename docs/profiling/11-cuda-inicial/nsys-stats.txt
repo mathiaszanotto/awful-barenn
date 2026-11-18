@@ -1,0 +1,52 @@
+Generating SQLite file nsys/11-cuda-inicial.sqlite from nsys/11-cuda-inicial.nsys-rep
+Processing [nsys/11-cuda-inicial.sqlite] with [<CUDA>/nsight-systems-2024.6.2/host-linux-x64/reports/cuda_api_sum.py]... 
+
+ ** CUDA API Summary (cuda_api_sum):
+
++----------+-----------------+-----------+-------------+-------------+-----------+------------+--------------+-----------------------------------+
+| Time (%) | Total Time (ns) | Num Calls |  Avg (ns)   |  Med (ns)   | Min (ns)  |  Max (ns)  | StdDev (ns)  |               Name                |
++----------+-----------------+-----------+-------------+-------------+-----------+------------+--------------+-----------------------------------+
+|     98.3 |   4,006,268,802 | 2,339,676 |     1,712.3 |     1,674.0 |     1,108 |  2,145,554 |      4,214.8 | cudaLaunchKernel                  |
+|      1.7 |      67,874,827 |        23 | 2,951,079.4 |     1,269.0 |       745 | 67,743,462 | 14,124,258.0 | cudaFree                          |
+|      0.0 |       1,989,372 |        15 |   132,624.8 |     5,194.0 |     3,628 |  1,793,307 |    459,917.2 | cudaMemcpy                        |
+|      0.0 |       1,312,126 |         1 | 1,312,126.0 | 1,312,126.0 | 1,312,126 |  1,312,126 |          0.0 | cudaGetDeviceProperties_v2_v12000 |
+|      0.0 |          75,371 |        22 |     3,426.0 |     1,253.0 |       848 |     43,998 |      9,078.2 | cudaMalloc                        |
+|      0.0 |          21,865 |         4 |     5,466.3 |     5,328.0 |     1,901 |      9,308 |      3,368.8 | cudaEventRecord                   |
+|      0.0 |           2,763 |         4 |       690.8 |       575.5 |       197 |      1,415 |        597.1 | cudaEventCreate                   |
+|      0.0 |           2,056 |         1 |     2,056.0 |     2,056.0 |     2,056 |      2,056 |          0.0 | cudaEventSynchronize              |
+|      0.0 |             963 |         4 |       240.8 |       134.5 |       119 |        575 |        223.0 | cudaEventDestroy                  |
+|      0.0 |             703 |         1 |       703.0 |       703.0 |       703 |        703 |          0.0 | cuModuleGetLoadingMode            |
++----------+-----------------+-----------+-------------+-------------+-----------+------------+--------------+-----------------------------------+
+
+Processing [nsys/11-cuda-inicial.sqlite] with [<CUDA>/nsight-systems-2024.6.2/host-linux-x64/reports/cuda_gpu_kern_sum.py]... 
+
+ ** CUDA GPU Kernel Summary (cuda_gpu_kern_sum):
+
++----------+-----------------+-----------+----------+----------+----------+----------+-------------+------------------------------------------------------------------------------------------------------+
+| Time (%) | Total Time (ns) | Instances | Avg (ns) | Med (ns) | Min (ns) | Max (ns) | StdDev (ns) |                                                 Name                                                 |
++----------+-----------------+-----------+----------+----------+----------+----------+-------------+------------------------------------------------------------------------------------------------------+
+|     15.2 |     429,186,157 |   194,973 |  2,201.3 |  2,304.0 |    1,663 |    3,424 |       317.8 | void BarennGPU::k_forward<(int)64, (int)32, (bool)0>(const float *, const float *, const float *, f… |
+|      9.4 |     263,921,273 |   194,973 |  1,353.6 |  1,344.0 |    1,311 |    2,112 |        64.3 | void BarennGPU::k_forward<(int)32, (int)16, (bool)0>(const float *, const float *, const float *, f… |
+|      8.4 |     235,775,440 |   194,973 |  1,209.3 |  1,184.0 |    1,183 |    1,568 |        58.7 | void BarennGPU::k_grad_in<(int)32, (int)16>(const float *, const float *, float *)                   |
+|      7.9 |     222,936,061 |   194,973 |  1,143.4 |  1,120.0 |    1,119 |    1,504 |        55.6 | void BarennGPU::k_atualiza<(int)32, (int)16>(const float *, const float *, float *, float *, float)  |
+|      7.9 |     222,445,374 |   194,973 |  1,140.9 |  1,120.0 |    1,119 |    1,599 |        55.3 | void BarennGPU::k_forward<(int)16, (int)10, (bool)1>(const float *, const float *, const float *, f… |
+|      7.8 |     219,554,776 |   194,973 |  1,126.1 |  1,120.0 |    1,087 |    1,472 |        54.3 | void BarennGPU::k_atualiza<(int)16, (int)10>(const float *, const float *, float *, float *, float)  |
+|      7.6 |     214,650,207 |   194,973 |  1,100.9 |  1,088.0 |    1,055 |    1,600 |        68.6 | BarennGPU::k_perda(const float *, const int *, int, float *, float *)                                |
+|      7.6 |     214,565,024 |   194,973 |  1,100.5 |  1,088.0 |    1,055 |    1,472 |        52.9 | void BarennGPU::k_atualiza<(int)64, (int)32>(const float *, const float *, float *, float *, float)  |
+|      7.3 |     206,905,019 |   194,973 |  1,061.2 |  1,056.0 |    1,023 |    1,568 |        51.4 | void BarennGPU::k_grad_in<(int)16, (int)10>(const float *, const float *, float *)                   |
+|      7.0 |     196,798,267 |   194,973 |  1,009.4 |    992.0 |      959 |    1,344 |        49.1 | void BarennGPU::k_delta<(int)16, (bool)0>(const float *, const float *, float *)                     |
+|      7.0 |     196,650,792 |   194,973 |  1,008.6 |    992.0 |      959 |    1,312 |        48.9 | void BarennGPU::k_delta<(int)32, (bool)0>(const float *, const float *, float *)                     |
+|      6.9 |     195,858,636 |   194,973 |  1,004.5 |    992.0 |      959 |    1,472 |        48.1 | void BarennGPU::k_delta<(int)10, (bool)1>(const float *, const float *, float *)                     |
++----------+-----------------+-----------+----------+----------+----------+----------+-------------+------------------------------------------------------------------------------------------------------+
+
+Processing [nsys/11-cuda-inicial.sqlite] with [<CUDA>/nsight-systems-2024.6.2/host-linux-x64/reports/cuda_gpu_mem_time_sum.py]... 
+
+ ** CUDA GPU MemOps Summary (by Time) (cuda_gpu_mem_time_sum):
+
++----------+-----------------+-------+----------+----------+----------+----------+-------------+------------------------------+
+| Time (%) | Total Time (ns) | Count | Avg (ns) | Med (ns) | Min (ns) | Max (ns) | StdDev (ns) |          Operation           |
++----------+-----------------+-------+----------+----------+----------+----------+-------------+------------------------------+
+|     56.0 |          83,262 |     8 | 10,407.8 |    608.0 |      384 |   78,366 |    27,462.6 | [CUDA memcpy Host-to-Device] |
+|     44.0 |          65,471 |     7 |  9,353.0 |    832.0 |      800 |   60,095 |    22,375.7 | [CUDA memcpy Device-to-Host] |
++----------+-----------------+-------+----------+----------+----------+----------+-------------+------------------------------+
+
